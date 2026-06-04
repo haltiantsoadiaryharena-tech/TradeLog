@@ -1,0 +1,2199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>TradeLog Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, query, where }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getStorage, ref, uploadString, getDownloadURL, deleteObject }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+  // ══════════════════════════════════════════
+  //  🔥 FIREBASE CONFIG
+  //  Remplace par ta propre config Firebase
+  // ══════════════════════════════════════════
+  const FIREBASE_CONFIG = {
+    apiKey:            "AIzaSyByw-Tm8-L5Y5J5SaxepsimuAQldfjUuTA",
+    authDomain:        "trade-log-pro-4498e.firebaseapp.com",
+    projectId:         "trade-log-pro-4498e",
+    storageBucket:     "trade-log-pro-4498e.firebasestorage.app",
+    messagingSenderId: "633243281135",
+    appId:             "1:633243281135:web:f16eec02373f89aeeddd1a"
+  };
+
+  const DEMO_MODE = FIREBASE_CONFIG.apiKey === "AIzaSyByw-Tm8-L5Y5J5SaxepsimuAQldfjUuTA";
+
+  let app, auth, db, storage, currentUser = null;
+
+  if (!DEMO_MODE) {
+    app     = initializeApp(FIREBASE_CONFIG);
+    auth    = getAuth(app);
+    db      = getFirestore(app);
+    storage = getStorage(app);
+
+    onAuthStateChanged(auth, user => {
+      currentUser = user;
+      if (user) {
+        document.getElementById('fb-login-screen').style.display = 'none';
+        document.getElementById('app-root').style.display        = 'block';
+        window._fbUid = user.uid;
+        window._fbSyncReady = true;
+        window.dispatchEvent(new Event('fb-ready'));
+      } else {
+        document.getElementById('fb-login-screen').style.display = 'flex';
+        document.getElementById('app-root').style.display        = 'none';
+      }
+    });
+  } else {
+    // Demo mode — localStorage only
+    document.getElementById('fb-login-screen').style.display = 'none';
+    document.getElementById('app-root').style.display        = 'block';
+    window._fbSyncReady = false;
+  }
+
+  // ── Expose Firebase helpers to global scope ──
+  window._fb = {
+    signIn: async () => {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    },
+    signOut: async () => {
+      await signOut(auth);
+    },
+    save: async (col, id, data) => {
+      if (!window._fbSyncReady) return;
+      await setDoc(doc(db, `users/${window._fbUid}/${col}`, id), data);
+    },
+    load: async (col, id) => {
+      if (!window._fbSyncReady) return null;
+      const snap = await getDoc(doc(db, `users/${window._fbUid}/${col}`, id));
+      return snap.exists() ? snap.data() : null;
+    },
+    loadAll: async (col) => {
+      if (!window._fbSyncReady) return [];
+      const snap = await getDocs(collection(db, `users/${window._fbUid}/${col}`));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    del: async (col, id) => {
+      if (!window._fbSyncReady) return;
+      await deleteDoc(doc(db, `users/${window._fbUid}/${col}`, id));
+    },
+    uploadImage: async (path, base64) => {
+      if (!window._fbSyncReady) return null;
+      const r = ref(storage, path);
+      await uploadString(r, base64, 'data_url');
+      return await getDownloadURL(r);
+    },
+    deleteImage: async (path) => {
+      if (!window._fbSyncReady) return;
+      try { await deleteObject(ref(storage, path)); } catch(_) {}
+    },
+  };
+</script>
+
+<style>
+/* ══════════════════════════════════════════
+   ROOT VARIABLES
+══════════════════════════════════════════ */
+:root {
+  --bg:#07090c; --surf:#0f1217; --surf2:#161b22; --surf3:#1c2230;
+  --bdr:#1e2530; --bdr2:#2a3340;
+  --gold:#FFD700; --goldl:#FFC83D; --golddim:rgba(255,215,0,.12);
+  --grn:#00E5A0; --grndim:rgba(0,229,160,.1);
+  --red:#FF4D6D; --reddim:rgba(255,77,109,.1);
+  --blu:#4D9FFF; --bludim:rgba(77,159,255,.1);
+  --txt:#DDE3ED; --txt2:#6B7A8D; --muted:#4A5568;
+  --r:10px; --r-sm:6px; --r-lg:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{font-size:16px}
+body{background:var(--bg);color:var(--txt);font-family:'Inter',sans-serif;
+  min-height:100vh;overflow-x:hidden;overscroll-behavior:none}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(rgba(255,215,0,.018)1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,215,0,.018)1px,transparent 1px);
+  background-size:44px 44px}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:var(--surf)}
+::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:99px}
+
+/* ══════════════════════════════════════════
+   FIREBASE LOGIN SCREEN
+══════════════════════════════════════════ */
+#fb-login-screen{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;padding:24px;text-align:center;position:fixed;inset:0;
+  background:var(--bg);z-index:9999
+}
+.fb-logo{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;
+  letter-spacing:-.03em;margin-bottom:8px}
+.fb-logo span{color:var(--gold)}
+.fb-subtitle{color:var(--txt2);font-size:.85rem;margin-bottom:40px}
+.fb-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r-lg);
+  padding:28px;max-width:340px;width:100%;margin-bottom:16px}
+.fb-card p{font-size:.82rem;color:var(--txt2);margin-bottom:20px;line-height:1.6}
+.btn-google{display:flex;align-items:center;gap:10px;justify-content:center;
+  background:#fff;color:#333;border:none;border-radius:8px;padding:12px 24px;
+  font-family:'Syne',sans-serif;font-weight:700;font-size:.9rem;cursor:pointer;
+  width:100%;transition:all .2s}
+.btn-google:hover{background:#f0f0f0}
+.btn-google svg{width:20px;height:20px;flex-shrink:0}
+.fb-note{font-size:.72rem;color:var(--muted);max-width:320px}
+.demo-link{color:var(--gold);cursor:pointer;text-decoration:underline;
+  font-size:.78rem;margin-top:12px;display:block}
+
+/* ══════════════════════════════════════════
+   APP ROOT
+══════════════════════════════════════════ */
+#app-root{position:relative;z-index:1;display:none}
+
+/* ══════════════════════════════════════════
+   LAYOUT
+══════════════════════════════════════════ */
+.app{max-width:960px;margin:0 auto;padding:0 0 72px}
+
+/* ── TOP HEADER ── */
+.top-header{
+  position:sticky;top:0;z-index:50;background:rgba(7,9,12,.95);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--bdr);
+  padding:10px 16px;display:flex;align-items:center;justify-content:space-between
+}
+.logo{font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:800;
+  letter-spacing:-.03em}
+.logo span{color:var(--gold)}
+.header-right{display:flex;gap:8px;align-items:center}
+
+/* ── ACCOUNT TABS ── */
+.acct-scroll{overflow-x:auto;padding:10px 16px 0;display:flex;gap:6px;
+  scrollbar-width:none}
+.acct-scroll::-webkit-scrollbar{display:none}
+.acct-chip{flex-shrink:0;padding:6px 14px;border-radius:99px;
+  border:1px solid var(--bdr);background:var(--surf2);
+  font-family:'Syne',sans-serif;font-weight:700;font-size:.75rem;
+  color:var(--txt2);cursor:pointer;transition:all .2s;white-space:nowrap}
+.acct-chip.active{background:var(--golddim);border-color:rgba(255,215,0,.5);color:var(--gold)}
+.acct-chip.add-btn{border-style:dashed;color:var(--muted)}
+.acct-chip.add-btn:hover{border-color:var(--gold);color:var(--gold)}
+
+/* ── BOTTOM NAV ── */
+.bottom-nav{
+  position:fixed;bottom:0;left:0;right:0;z-index:50;
+  background:rgba(15,18,23,.97);backdrop-filter:blur(12px);
+  border-top:1px solid var(--bdr);
+  display:flex;justify-content:space-around;align-items:center;
+  padding:8px 0 max(8px,env(safe-area-inset-bottom));
+  max-width:960px;margin:0 auto
+}
+.nav-item{display:flex;flex-direction:column;align-items:center;
+  gap:3px;flex:1;padding:4px 2px;cursor:pointer;transition:all .2s;
+  border:none;background:none}
+.nav-item .nav-icon{font-size:1.2rem}
+.nav-item .nav-label{font-family:'Syne',sans-serif;font-size:.6rem;
+  font-weight:700;letter-spacing:.05em;color:var(--muted);transition:color .2s}
+.nav-item.active .nav-label{color:var(--gold)}
+.nav-item.active .nav-icon{filter:drop-shadow(0 0 6px var(--gold))}
+
+/* ── PAGES ── */
+.page{display:none;padding:14px 16px;animation:fadeIn .2s ease}
+.page.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ══════════════════════════════════════════
+   CARDS & COMPONENTS
+══════════════════════════════════════════ */
+.card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:16px}
+.card2{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r)}
+.card-title{font-family:'Inter',sans-serif;font-size:.62rem;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.section-title{font-family:'Syne',sans-serif;font-size:.95rem;font-weight:800;
+  margin-bottom:12px;display:flex;align-items:center;gap:8px}
+
+/* ── STATS GRID ── */
+.stat-grid{display:grid;gap:10px}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.g4{grid-template-columns:1fr 1fr 1fr 1fr}
+@media(max-width:480px){.g4{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr}}
+.stat-card{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);
+  padding:12px 14px}
+.stat-label{font-size:.58rem;font-weight:700;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.stat-val{font-family:'Space Mono',monospace;font-size:1.05rem;font-weight:700}
+.stat-sub{font-family:'Space Mono',monospace;font-size:.65rem;color:var(--muted);margin-top:2px}
+.pos{color:var(--grn)}.neg{color:var(--red)}.neu{color:var(--goldl)}.blu{color:var(--blu)}
+
+/* ── FORM ELEMENTS ── */
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:.62rem;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted)}
+input,select,textarea{
+  background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r-sm);
+  color:var(--txt);font-family:'Space Mono',monospace;font-size:.82rem;
+  padding:9px 11px;outline:none;transition:border-color .2s;width:100%;
+  -webkit-appearance:none
+}
+input:focus,select:focus,textarea:focus{border-color:var(--gold)}
+textarea{resize:vertical;min-height:72px;font-family:'Inter',sans-serif;font-size:.82rem}
+select option{background:var(--surf2)}
+input[type=range]{padding:0;height:4px;border-radius:99px;
+  background:var(--bdr);accent-color:var(--goldl)}
+input[type=checkbox]{width:auto;accent-color:var(--gold)}
+
+/* ── BUTTONS ── */
+.btn{background:var(--gold);color:#000;border:none;border-radius:var(--r-sm);
+  padding:10px 20px;font-family:'Syne',sans-serif;font-weight:700;font-size:.84rem;
+  cursor:pointer;transition:all .2s;letter-spacing:.03em;white-space:nowrap;
+  display:inline-flex;align-items:center;gap:6px}
+.btn:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn.full{width:100%;justify-content:center}
+.btn.red{background:var(--red);color:#fff}
+.btn.ghost{background:var(--surf2);color:var(--txt);border:1px solid var(--bdr)}
+.btn.ghost:hover{border-color:var(--gold);color:var(--gold)}
+.btn.sm{padding:6px 12px;font-size:.74rem}
+.btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
+.icon-btn{background:none;border:1px solid var(--bdr);border-radius:var(--r-sm);
+  color:var(--muted);padding:5px 9px;cursor:pointer;font-size:.72rem;transition:all .2s}
+.icon-btn:hover{border-color:var(--gold);color:var(--gold)}
+.icon-btn.del:hover{border-color:var(--red);color:var(--red)}
+
+/* ── PROGRESS BAR ── */
+.prog-wrap{background:var(--surf3);border-radius:99px;overflow:hidden}
+.prog-fill{height:100%;border-radius:99px;transition:width .4s}
+.h4{height:4px}.h6{height:6px}.h8{height:8px}
+
+/* ── BANNERS ── */
+.banner{border-radius:var(--r);padding:11px 14px;
+  font-family:'Syne',sans-serif;font-weight:700;font-size:.8rem;
+  display:none;margin-bottom:12px;align-items:center;gap:10px}
+.banner.show{display:flex}
+.banner.stop{background:var(--reddim);border:1px solid rgba(255,77,109,.4);color:var(--red);
+  animation:pulse 1.5s infinite}
+.banner.warn{background:rgba(255,200,61,.08);border:1px solid rgba(255,200,61,.3);color:var(--goldl)}
+.banner.info{background:var(--golddim);border:1px solid rgba(255,215,0,.3);color:var(--gold)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.65}}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:99px;
+  padding:3px 10px;font-size:.68rem;font-weight:700;font-family:'Syne',sans-serif}
+.badge.grn{background:var(--grndim);color:var(--grn);border:1px solid rgba(0,229,160,.3)}
+.badge.red{background:var(--reddim);color:var(--red);border:1px solid rgba(255,77,109,.3)}
+.badge.yel{background:rgba(255,200,61,.1);color:var(--goldl);border:1px solid rgba(255,200,61,.3)}
+.badge.blu{background:var(--bludim);color:var(--blu);border:1px solid rgba(77,159,255,.3)}
+.day-badge{background:rgba(255,200,61,.1);color:var(--goldl);
+  border:1px solid rgba(255,200,61,.3);border-radius:99px;
+  padding:3px 10px;font-family:'Space Mono',monospace;font-size:.7rem;font-weight:700}
+
+/* ── EMOTION CHIPS ── */
+.emo-wrap{display:flex;flex-wrap:wrap;gap:6px}
+.emo-chip{padding:6px 12px;border-radius:99px;border:1px solid var(--bdr);
+  background:var(--surf2);font-size:.78rem;font-weight:600;color:var(--txt2);
+  cursor:pointer;transition:all .18s;font-family:'Inter',sans-serif}
+.emo-chip.sel{border-color:rgba(255,200,61,.6);background:rgba(255,200,61,.1);
+  color:var(--goldl)}
+
+/* ── CHECK TOGGLE ── */
+.chk-item{display:flex;align-items:center;justify-content:space-between;
+  padding:11px 13px;border-radius:var(--r-sm);border:1px solid var(--bdr);
+  background:var(--surf2);margin-bottom:7px;gap:10px;transition:all .2s}
+.chk-item.ok{border-color:rgba(0,229,160,.35);background:rgba(0,229,160,.05)}
+.chk-item.nok{border-color:rgba(255,77,109,.35);background:rgba(255,77,109,.05)}
+.chk-label{flex:1}
+.chk-label b{display:block;font-size:.84rem;font-weight:700;color:var(--txt)}
+.chk-label small{font-size:.7rem;color:var(--muted)}
+.toggle-pair{display:flex;gap:5px}
+.tog{padding:5px 13px;border-radius:99px;border:1px solid var(--bdr);
+  background:var(--surf3);font-size:.73rem;font-weight:700;cursor:pointer;
+  transition:all .15s;font-family:'Syne',sans-serif}
+.tog.ok-sel{background:rgba(0,229,160,.2);border-color:rgba(0,229,160,.6);color:var(--grn)}
+.tog.nok-sel{background:rgba(255,77,109,.2);border-color:rgba(255,77,109,.6);color:var(--red)}
+
+/* ── VERDICT BOX ── */
+.verdict{border-radius:var(--r);padding:18px;text-align:center;
+  border:2px solid;margin:14px 0}
+.verdict.go{background:var(--grndim);border-color:rgba(0,229,160,.5)}
+.verdict.nogo{background:var(--reddim);border-color:rgba(255,77,109,.5);animation:pulse 2s infinite}
+.verdict.pending{background:rgba(255,200,61,.07);border-color:rgba(255,200,61,.3)}
+.verdict-title{font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;
+  letter-spacing:.04em}
+.verdict-sub{font-size:.78rem;margin-top:5px;opacity:.75}
+
+/* ── TRADE ITEM ── */
+.trade-item{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);
+  padding:12px 13px;display:flex;align-items:center;gap:10px;margin-bottom:8px;
+  transition:all .2s;cursor:pointer;position:relative;overflow:hidden}
+.trade-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+.trade-item.win::before{background:var(--grn)}
+.trade-item.loss::before{background:var(--red)}
+.trade-item.be::before{background:var(--goldl)}
+.trade-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:.62rem;font-weight:700;flex-shrink:0}
+.trade-num.win{background:rgba(0,229,160,.15);color:var(--grn)}
+.trade-num.loss{background:rgba(255,77,109,.15);color:var(--red)}
+.trade-num.be{background:rgba(255,200,61,.15);color:var(--goldl)}
+.trade-info{flex:1;min-width:0}
+.trade-pair{font-family:'Syne',sans-serif;font-weight:700;font-size:.88rem}
+.trade-meta{font-family:'Space Mono',monospace;font-size:.65rem;color:var(--muted);
+  margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trade-note-p{font-size:.7rem;color:var(--muted);font-style:italic;margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.trade-amount{font-family:'Space Mono',monospace;font-weight:700;font-size:.9rem;
+  white-space:nowrap;flex-shrink:0}
+.trade-amount.win{color:var(--grn)}.trade-amount.loss{color:var(--red)}
+.trade-amount.be{color:var(--goldl)}
+.trade-actions{display:flex;gap:4px;flex-shrink:0}
+
+/* ── SCREENSHOT ── */
+.ss-box{border:2px dashed var(--bdr);border-radius:var(--r);
+  min-height:90px;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:6px;cursor:pointer;transition:all .2s;
+  background:var(--surf2);position:relative;overflow:hidden}
+.ss-box:hover{border-color:var(--gold);background:var(--golddim)}
+.ss-box img{width:100%;max-height:220px;object-fit:contain;border-radius:var(--r-sm)}
+.ss-box-label{font-size:.75rem;color:var(--muted);font-family:'Inter',sans-serif}
+.ss-icon{font-size:1.6rem}
+.ss-remove{position:absolute;top:6px;right:6px;background:rgba(255,77,109,.8);
+  border:none;border-radius:99px;color:#fff;padding:2px 8px;font-size:.7rem;
+  cursor:pointer;z-index:10}
+
+/* ── CALENDAR ── */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-head{text-align:center;font-size:.55rem;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);padding:5px 0}
+.cal-day{min-height:56px;border-radius:7px;border:1px solid var(--bdr);
+  background:var(--surf2);padding:4px;cursor:pointer;transition:all .15s;
+  display:flex;flex-direction:column;gap:1px}
+.cal-day:hover{border-color:var(--gold);background:var(--golddim)}
+.cal-day.today-d{border-color:var(--goldl);box-shadow:0 0 0 1px var(--goldl)}
+.cal-day.other-m{opacity:.22;pointer-events:none}
+.cal-day.win-d{background:rgba(0,229,160,.07)!important;border-color:rgba(0,229,160,.3)!important}
+.cal-day.loss-d{background:rgba(255,77,109,.07)!important;border-color:rgba(255,77,109,.3)!important}
+.cal-day.be-d{background:rgba(255,200,61,.06)!important;border-color:rgba(255,200,61,.25)!important}
+.cal-day-n{font-family:'Space Mono',monospace;font-size:.58rem;color:var(--muted)}
+.cal-emo{font-size:.75rem}
+.cal-pnl{font-family:'Space Mono',monospace;font-size:.5rem;font-weight:700}
+.cal-pnl.pos{color:var(--grn)}.cal-pnl.neg{color:var(--red)}
+
+/* ── EQUITY CHART ── */
+.eq-canvas-wrap{width:100%;height:140px;margin-top:8px}
+
+/* ── MINI BAR ── */
+.mini-bars{display:flex;align-items:flex-end;gap:3px;height:54px}
+.mini-bar{flex:1;border-radius:3px 3px 0 0;min-height:3px}
+.mini-bar.pos{background:var(--grn)}.mini-bar.neg{background:var(--red)}
+.mini-bar.z{background:var(--bdr);height:3px}
+.mini-bar-labels{display:flex;gap:3px;margin-top:3px}
+.mini-bar-label{flex:1;text-align:center;font-family:'Space Mono',monospace;
+  font-size:.52rem;color:var(--muted)}
+
+/* ── OBJECTIVE ── */
+.obj-card{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);
+  padding:14px;margin-bottom:8px}
+.obj-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.obj-title{font-family:'Syne',sans-serif;font-size:.88rem;font-weight:700}
+.obj-pct{font-family:'Space Mono',monospace;font-size:.82rem;font-weight:700}
+
+/* ── SUMMARY TABLE ── */
+.sum-table{width:100%;border-collapse:collapse}
+.sum-table th{font-size:.58rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);padding:7px 8px;text-align:left;border-bottom:1px solid var(--bdr)}
+.sum-table td{padding:8px 8px;border-bottom:1px solid var(--bdr);
+  font-family:'Space Mono',monospace;font-size:.72rem}
+.sum-table tr:last-child td{border-bottom:none}
+.sum-table tr:hover td{background:rgba(255,255,255,.015)}
+
+/* ── DD METER ── */
+.dd-meter{border-radius:var(--r);padding:12px 14px;border:1px solid var(--bdr)}
+.dd-meter.safe{background:rgba(0,229,160,.04);border-color:rgba(0,229,160,.2)}
+.dd-meter.warn{background:rgba(255,200,61,.06);border-color:rgba(255,200,61,.3)}
+.dd-meter.danger{background:var(--reddim);border-color:rgba(255,77,109,.4);animation:pulse 1.5s infinite}
+
+/* ── MODAL ── */
+.modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);
+  z-index:200;align-items:flex-end;justify-content:center;padding:0}
+.modal-ov.open{display:flex}
+.modal{background:var(--surf);border:1px solid var(--bdr2);
+  border-radius:var(--r-lg) var(--r-lg) 0 0;
+  padding:20px 20px max(20px,env(safe-area-inset-bottom));
+  width:100%;max-width:960px;max-height:92vh;overflow-y:auto}
+.modal-handle{width:40px;height:4px;background:var(--bdr2);border-radius:99px;
+  margin:0 auto 16px}
+.modal-title{font-family:'Syne',sans-serif;font-size:.95rem;font-weight:800;margin-bottom:16px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+/* ── GATE OVERLAY ── */
+#gate-overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);
+  z-index:100;align-items:center;justify-content:center;padding:16px
+}
+#gate-overlay.open{display:flex}
+.gate-box{background:var(--surf);border:1px solid var(--bdr2);
+  border-radius:var(--r-lg);padding:22px;width:100%;max-width:480px;
+  max-height:90vh;overflow-y:auto}
+
+/* ── UTILS ── */
+.flex-between{display:flex;justify-content:space-between;align-items:center}
+.flex-gap{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sep{border:none;border-top:1px solid var(--bdr);margin:14px 0}
+.empty{text-align:center;padding:32px 16px;color:var(--muted);font-size:.82rem}
+.empty-icon{font-size:2rem;margin-bottom:8px}
+.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}
+.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:var(--grn);
+  display:inline-block;animation:pulse 2s infinite}
+.sync-dot.off{background:var(--muted);animation:none}
+
+/* ── SEARCH / FILTER ── */
+.search-bar{position:relative}
+.search-bar input{padding-left:34px}
+.search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);
+  font-size:.9rem;pointer-events:none}
+.filter-row{display:flex;gap:6px;overflow-x:auto;padding:2px 0;scrollbar-width:none}
+.filter-row::-webkit-scrollbar{display:none}
+.filter-chip{flex-shrink:0;padding:5px 12px;border-radius:99px;
+  border:1px solid var(--bdr);background:var(--surf2);
+  font-size:.72rem;font-weight:700;color:var(--muted);cursor:pointer;
+  transition:all .15s;font-family:'Syne',sans-serif;white-space:nowrap}
+.filter-chip.active{background:var(--golddim);border-color:rgba(255,215,0,.5);color:var(--gold)}
+
+/* ── HEATMAP ── */
+.heatmap-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.hm-cell{aspect-ratio:1;border-radius:4px;cursor:pointer;transition:all .15s}
+.hm-cell:hover{transform:scale(1.15)}
+
+/* ── JOURNAL ENTRY ── */
+.journal-entry{background:var(--surf2);border:1px solid var(--bdr);
+  border-radius:var(--r);padding:14px;margin-bottom:10px}
+.journal-date{font-family:'Space Mono',monospace;font-size:.68rem;color:var(--muted);
+  margin-bottom:8px}
+.journal-disc{display:flex;align-items:center;gap:8px;margin-top:8px}
+.disc-stars{display:flex;gap:3px}
+.disc-star{font-size:1rem;cursor:pointer;transition:transform .1s}
+.disc-star:hover{transform:scale(1.2)}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════
+     FIREBASE LOGIN SCREEN
+════════════════════════════════════════ -->
+<div id="fb-login-screen">
+  <div class="fb-logo">TRADE<span>LOG</span> PRO</div>
+  <div class="fb-subtitle">Ton journal de trading professionnel</div>
+  <div class="fb-card">
+    <p>Connecte-toi avec Google pour synchroniser tes données entre ton téléphone et ton PC automatiquement.</p>
+    <button class="btn-google" onclick="window._fb.signIn()">
+      <svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Continuer avec Google
+    </button>
+  </div>
+  <span class="fb-note">Tes données sont privées et accessibles uniquement par toi.</span>
+  <span class="demo-link" onclick="startDemo()">→ Utiliser en mode démo (local uniquement)</span>
+</div>
+
+<!-- ════════════════════════════════════════
+     GATE OVERLAY — Checklist obligatoire
+════════════════════════════════════════ -->
+<div id="gate-overlay">
+  <div class="gate-box" id="gate-content"></div>
+</div>
+
+<!-- ════════════════════════════════════════
+     MAIN APP
+════════════════════════════════════════ -->
+<div id="app-root">
+<div class="app">
+
+  <!-- TOP HEADER -->
+  <div class="top-header">
+    <div>
+      <div class="logo">TRADE<span>LOG</span></div>
+    </div>
+    <div class="header-right">
+      <span class="sync-dot" id="sync-dot" title="Firebase sync"></span>
+      <button class="btn ghost sm" onclick="exportJSON()" style="padding:5px 10px">⬇</button>
+      <button class="btn ghost sm" id="logout-btn" onclick="doLogout()" style="padding:5px 10px;display:none">🚪</button>
+    </div>
+  </div>
+
+  <!-- ACCOUNT TABS -->
+  <div class="acct-scroll" id="acctTabs"></div>
+
+  <!-- PAGES -->
+  <div id="page-dashboard" class="page active"><!-- filled by JS --></div>
+  <div id="page-journal"   class="page"><!-- filled by JS --></div>
+  <div id="page-history"   class="page"><!-- filled by JS --></div>
+  <div id="page-stats"     class="page"><!-- filled by JS --></div>
+  <div id="page-settings"  class="page"><!-- filled by JS --></div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" onclick="showPage('dashboard',this)">
+      <span class="nav-icon">🏠</span><span class="nav-label">HOME</span></button>
+    <button class="nav-item" onclick="showPage('journal',this)">
+      <span class="nav-icon">📋</span><span class="nav-label">JOURNAL</span></button>
+    <button class="nav-item" onclick="showPage('history',this)">
+      <span class="nav-icon">🕐</span><span class="nav-label">HISTORIQUE</span></button>
+    <button class="nav-item" onclick="showPage('stats',this)">
+      <span class="nav-icon">📊</span><span class="nav-label">STATS</span></button>
+    <button class="nav-item" onclick="showPage('settings',this)">
+      <span class="nav-icon">⚙️</span><span class="nav-label">SETTINGS</span></button>
+  </nav>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════
+     MODALS
+════════════════════════════════════════ -->
+<!-- Add/Edit Trade Modal -->
+<div class="modal-ov" id="tradeModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="tradeModalTitle">➕ Nouveau trade</div>
+    <div id="tradeModalBody"></div>
+  </div>
+</div>
+
+<!-- Add Account Modal -->
+<div class="modal-ov" id="acctModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">➕ Nouveau compte</div>
+    <div id="acctModalBody"></div>
+  </div>
+</div>
+
+<!-- Trade Detail Modal -->
+<div class="modal-ov" id="detailModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div id="detailModalBody"></div>
+    <div class="modal-actions" id="detailModalActions"></div>
+  </div>
+</div>
+
+<!-- Day Detail Modal -->
+<div class="modal-ov" id="dayModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div id="dayModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn ghost sm" onclick="closeModal('dayModal')">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ══════════════════════════════════════════════════════════════
+//  CONSTANTS
+// ══════════════════════════════════════════════════════════════
+const CRITERIA = [
+  {id:'concentration',label:'Concentration',  emoji:'🎯',desc:'Niveau de focus et d\'attention'},
+  {id:'discipline',   label:'Discipline',      emoji:'⚖️',desc:'Respect du plan de trading'},
+  {id:'confiance',    label:'Confiance',        emoji:'💪',desc:'Confiance en soi et en l\'analyse'},
+  {id:'patience',     label:'Patience',         emoji:'⏳',desc:'Capacité à attendre le bon setup'},
+  {id:'sante',        label:'Forme physique',   emoji:'🏃',desc:'Énergie corporelle'},
+  {id:'sommeil',      label:'Sommeil',          emoji:'😴',desc:'Qualité et durée du sommeil'},
+  {id:'stress',       label:'Gestion du stress',emoji:'🧘',desc:'Contrôle émotionnel'},
+];
+const ENTRY_CONDITIONS = [
+  {id:'tv_analysis',  label:'Analyse TradingView faite',      emoji:'📈'},
+  {id:'setup_ok',     label:'Setup confirmé (OB/FVG/BOS…)',   emoji:'✅'},
+  {id:'session_ok',   label:'Session de trading active',       emoji:'🕐'},
+  {id:'no_news',      label:'Pas de news importantes (30min)', emoji:'📰'},
+  {id:'sl_tp_set',    label:'SL et TP définis',               emoji:'🎯'},
+  {id:'risk_ok',      label:'Risque calculé et accepté',      emoji:'💰'},
+];
+const EMOTIONS = ['🧊 Froid','😌 Serein','🎯 Focus','😤 Frustré',
+  '😰 Stressé','🚀 Euphorique','😴 Fatigué','😡 Vengeur'];
+const PAIRS    = ['XAUUSD','EURUSD','GBPUSD','USDJPY','GBPJPY',
+  'NAS100','US30','BTCUSD','Autre'];
+const SESSIONS = ['Asie','Londres','New York','Pré-marché'];
+const SETUPS   = ['Order Block','FVG','Break & Retest','Breakout',
+  'Support/Résistance','ICT Kill Zone','Autre'];
+const CHECK_THRESHOLD = 5;
+const ENTRY_THRESHOLD = 6; // all entry conditions must be checked
+
+// ══════════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════════
+let state = {
+  accounts:[],
+  trades:{},        // accountId → [trade,…]
+  dailies:{},       // accountId → { date → DailyEntry }
+  objectives:{},    // accountId → [obj,…]
+  settings:{ currency:'$', startDates:{} },
+};
+let activeAcctId = '';
+let gateEditId   = null; // trade being edited after gate
+let calOffset = 0, weekOffset = 0, monthOffset = 0;
+let histFilters = { search:'', result:'all', dir:'all', pair:'all' };
+
+// ══════════════════════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════════════════════
+const toKey = d => d instanceof Date ? d.toISOString().split('T')[0] : d;
+const today = () => toKey(new Date());
+const uid   = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const fmt   = (n,c='$') => (n>=0?'+':'')+n.toFixed(2)+' '+c;
+const fmtA  = (n,c='$') => n.toFixed(2)+' '+c;
+const cc    = v => v>0?'pos':v<0?'neg':'neu';
+const cl    = (v,a,b) => Math.max(a,Math.min(b,v));
+const acct  = () => state.accounts.find(a=>a.id===activeAcctId)||state.accounts[0];
+const myTrades = (aid=activeAcctId) => state.trades[aid]||[];
+const dayTrades= (d,aid=activeAcctId) => myTrades(aid).filter(t=>t.date===d);
+const dayNumber= (aid=activeAcctId) => {
+  const sd = state.settings.startDates[aid];
+  if(!sd) return null;
+  try{ const s=new Date(sd+'T00:00:00'), n=new Date();
+    n.setHours(0,0,0,0); return Math.floor((n-s)/86400000)+1; }
+  catch{ return null; }
+};
+
+// ══════════════════════════════════════════════════════════════
+//  STORAGE — localStorage + Firebase sync
+// ══════════════════════════════════════════════════════════════
+function saveLocal(){ localStorage.setItem('tlog_pro4', JSON.stringify(state)); }
+function loadLocal(){
+  const raw=localStorage.getItem('tlog_pro4');
+  if(raw){ try{ state=JSON.parse(raw); ensureStructure(); }catch(e){} }
+}
+function ensureStructure(){
+  if(!state.accounts)  state.accounts=[];
+  if(!state.trades)    state.trades={};
+  if(!state.dailies)   state.dailies={};
+  if(!state.objectives)state.objectives={};
+  if(!state.settings)  state.settings={currency:'$',startDates:{}};
+  if(!state.settings.startDates) state.settings.startDates={};
+}
+
+async function saveAll(){
+  saveLocal();
+  if(!window._fbSyncReady) return;
+  try{
+    await window._fb.save('state','main',JSON.parse(JSON.stringify(state)));
+    document.getElementById('sync-dot').classList.remove('off');
+  }catch(e){ document.getElementById('sync-dot').classList.add('off'); }
+}
+async function loadFromFirebase(){
+  if(!window._fbSyncReady) return;
+  try{
+    const remote = await window._fb.load('state','main');
+    if(remote){ state=remote; ensureStructure(); saveLocal(); }
+  }catch(e){}
+}
+
+// ══════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════
+async function init(){
+  loadLocal();
+  if(window._fbSyncReady) await loadFromFirebase();
+  else if(window._fbSyncReady===false){
+    // demo mode
+    document.getElementById('sync-dot').classList.add('off');
+  }
+  if(state.accounts.length===0) seedDefaultAccounts();
+  if(state.accounts.length>0) activeAcctId=state.accounts[0].id;
+  seedDefaultObjectives();
+  renderApp();
+  checkDailyGate();
+}
+
+window.addEventListener('fb-ready', async ()=>{
+  await loadFromFirebase();
+  document.getElementById('logout-btn').style.display='block';
+  renderApp();
+  checkDailyGate();
+});
+
+function startDemo(){
+  document.getElementById('fb-login-screen').style.display='none';
+  document.getElementById('app-root').style.display='block';
+  init();
+}
+window.addEventListener('DOMContentLoaded', ()=>{
+  if(document.getElementById('app-root').style.display==='block') init();
+});
+// If already shown (demo config key already set)
+if(document.getElementById('app-root') &&
+   document.getElementById('app-root').style.display==='block') init();
+
+function doLogout(){ window._fb?.signOut(); }
+
+// ══════════════════════════════════════════════════════════════
+//  DEFAULT DATA
+// ══════════════════════════════════════════════════════════════
+function seedDefaultAccounts(){
+  const t=today();
+  state.accounts=[
+    {id:'pf_5ers',   name:'5ers PropFirm',      capital:2500, riskCapital:125,
+     riskPerTrade:6,  ddDaily:125, ddGlobal:250,  currency:'$',
+     maxTrades:3, maxLosses:2, setupAPlus:false, propFirm:'5ers'},
+    {id:'cent_exness',name:'Exness Cent',        capital:200,  riskCapital:200,
+     riskPerTrade:20, ddDaily:200, ddGlobal:200,  currency:'USC',
+     maxTrades:3, maxLosses:2, setupAPlus:true,  propFirm:'Exness'},
+    {id:'instant_1k', name:'Instant Funding 1K', capital:1000, riskCapital:100,
+     riskPerTrade:10, ddDaily:50,  ddGlobal:100,  currency:'$',
+     maxTrades:3, maxLosses:2, setupAPlus:false, propFirm:'Instant Funding'},
+  ];
+  state.accounts.forEach(a=>{
+    state.settings.startDates[a.id]=t;
+    if(!state.trades[a.id])   state.trades[a.id]=[];
+    if(!state.dailies[a.id])  state.dailies[a.id]={};
+    if(!state.objectives[a.id]) state.objectives[a.id]=[];
+  });
+  activeAcctId='pf_5ers';
+}
+
+function seedDefaultObjectives(){
+  state.accounts.forEach(a=>{
+    if(!state.objectives[a.id]) state.objectives[a.id]=[];
+    if(state.objectives[a.id].length>0) return;
+    state.objectives[a.id]=[
+      {id:uid(),type:'pnl_daily',   title:'Objectif journalier',
+       desc:`Réaliser ${a.riskPerTrade*3} ${a.currency} aujourd'hui`,
+       target:a.riskPerTrade*3, period:'daily',   achieved:false},
+      {id:uid(),type:'no_loss',     title:'Max 2 SL par jour',
+       desc:'Ne pas dépasser 2 stop-loss dans la journée',
+       target:2,                 period:'daily',   achieved:false},
+      {id:uid(),type:'winrate',     title:'Win Rate ≥ 60%',
+       desc:'Maintenir un win rate de 60% ou plus',
+       target:60,                period:'alltime', achieved:false},
+      {id:uid(),type:'pnl_monthly', title:'Objectif mensuel',
+       desc:`Réaliser ${a.riskPerTrade*20} ${a.currency} ce mois`,
+       target:a.riskPerTrade*20, period:'monthly', achieved:false},
+      {id:uid(),type:'discipline',  title:'Plan respecté (semaine)',
+       desc:'Respecter le plan de trading cette semaine',
+       target:5,                 period:'weekly',  achieved:false},
+      {id:uid(),type:'funded',      title:'Passer le challenge',
+       desc:'Atteindre l\'objectif de profit du compte',
+       target:a.ddGlobal*0.8,   period:'alltime', achieved:false},
+    ];
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  DAILY GATE — Checklist obligatoire une fois par jour
+// ══════════════════════════════════════════════════════════════
+function checkDailyGate(){
+  const a=acct(); if(!a) return;
+  const d=today();
+  const entry=(state.dailies[a.id]||{})[d];
+  // Gate already passed today
+  if(entry && entry.gatePassed) return;
+  openGate();
+}
+
+function openGate(){
+  const a=acct(); if(!a) return;
+  const d=today();
+  const existing=(state.dailies[a.id]||{})[d]||{};
+  const checks   = existing.criteria||{};
+  const conditions = existing.conditions||{};
+  const emotion  = existing.mainEmotion||'';
+
+  document.getElementById('gate-content').innerHTML = buildGateHTML(checks,conditions,emotion,a,d);
+  document.getElementById('gate-overlay').classList.add('open');
+  refreshGateVerdict();
+}
+
+function buildGateHTML(checks,conditions,emotion,a,d){
+  const dn = dayNumber(a.id);
+  return `
+    <div class="flex-between mb12">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-size:1rem;font-weight:800">
+          🧠 Checklist du jour
+        </div>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:2px">${d}
+          ${dn?`<span class="day-badge" style="margin-left:8px">Jour ${dn}</span>`:''}
+        </div>
+      </div>
+      <button class="btn ghost sm" onclick="skipGate()">Ignorer</button>
+    </div>
+
+    <!-- Compte actif -->
+    <div class="banner info show mb12" style="font-size:.76rem">
+      🏢 ${a.name} — Risque: ${a.riskPerTrade} ${a.currency}/trade · DD: ${a.ddDaily} ${a.currency}
+    </div>
+
+    <!-- Humeur -->
+    <div class="card-title">😶 Humeur principale</div>
+    <div class="emo-wrap mb12" id="gate-emos">
+      ${EMOTIONS.map(e=>`
+        <span class="emo-chip ${emotion===e?'sel':''}" onclick="gateSetEmo(this,'${e}')">${e}</span>
+      `).join('')}
+    </div>
+
+    <!-- 7 Critères -->
+    <div class="flex-between mb8">
+      <div class="card-title" style="margin:0">🧠 7 Critères</div>
+      <span id="gate-crit-score" style="font-family:'Space Mono',monospace;font-size:.8rem;font-weight:700"></span>
+    </div>
+    ${CRITERIA.map(c=>`
+      <div class="chk-item ${checks[c.id]===true?'ok':checks[c.id]===false?'nok':''}" id="gate-ci-${c.id}">
+        <div class="chk-label">
+          <b>${c.emoji} ${c.label}</b>
+          <small>${c.desc}</small>
+        </div>
+        <div class="toggle-pair">
+          <span class="tog ${checks[c.id]===true?'ok-sel':''}" onclick="gateSetCrit('${c.id}',true)">✅</span>
+          <span class="tog ${checks[c.id]===false?'nok-sel':''}" onclick="gateSetCrit('${c.id}',false)">❌</span>
+        </div>
+      </div>
+    `).join('')}
+
+    <div class="sep"></div>
+
+    <!-- Conditions d'entrée -->
+    <div class="card-title mb8">📊 Conditions d'entrée</div>
+    ${ENTRY_CONDITIONS.map(c=>`
+      <div class="chk-item ${conditions[c.id]?'ok':''}" id="gate-ec-${c.id}">
+        <div class="chk-label">
+          <b>${c.emoji} ${c.label}</b>
+        </div>
+        <div class="toggle-pair">
+          <span class="tog ${conditions[c.id]?'ok-sel':''}"
+            onclick="gateSetCond('${c.id}',!${!!conditions[c.id]})">
+            ${conditions[c.id]?'✅':'☐'}
+          </span>
+        </div>
+      </div>
+    `).join('')}
+
+    <!-- Verdict -->
+    <div id="gate-verdict" class="verdict pending mt12">
+      <div class="verdict-title">⏳ Complète la checklist</div>
+      <div class="verdict-sub">Réponds à tous les critères</div>
+    </div>
+
+    <!-- Validate -->
+    <button class="btn full mt12" id="gate-validate-btn" onclick="validateGate()" disabled>
+      ✅ Valider et accéder au journal
+    </button>
+  `;
+}
+
+// Gate state (temp, not saved until validate)
+let _gateChecks={}, _gateConds={}, _gateEmo='';
+
+function gateSetEmo(el,val){
+  _gateEmo=val;
+  document.querySelectorAll('#gate-emos .emo-chip').forEach(e=>e.classList.remove('sel'));
+  el.classList.add('sel');
+}
+function gateSetCrit(id,val){
+  _gateChecks[id]=val;
+  const item=document.getElementById('gate-ci-'+id);
+  item.classList.remove('ok','nok');
+  item.classList.add(val?'ok':'nok');
+  item.querySelectorAll('.tog').forEach(t=>t.classList.remove('ok-sel','nok-sel'));
+  item.querySelectorAll('.tog')[val?0:1].classList.add(val?'ok-sel':'nok-sel');
+  refreshGateVerdict();
+}
+function gateSetCond(id,val){
+  _gateConds[id]=val;
+  const item=document.getElementById('gate-ec-'+id);
+  item.classList.toggle('ok',val);
+  const tog=item.querySelector('.tog');
+  tog.classList.toggle('ok-sel',val);
+  tog.textContent=val?'✅':'☐';
+  refreshGateVerdict();
+}
+
+function refreshGateVerdict(){
+  const okCount=Object.values(_gateChecks).filter(v=>v===true).length;
+  const answered=Object.keys(_gateChecks).length;
+  const allDone=answered>=CRITERIA.length;
+  const condOk=ENTRY_CONDITIONS.every(c=>_gateConds[c.id]);
+  const canTrade=allDone && okCount>=CHECK_THRESHOLD && condOk;
+
+  const scoreEl=document.getElementById('gate-crit-score');
+  if(scoreEl) scoreEl.textContent=`${okCount}/${CRITERIA.length}`;
+  scoreEl && (scoreEl.style.color=okCount>=CHECK_THRESHOLD?'var(--grn)':'var(--red)');
+
+  const vd=document.getElementById('gate-verdict');
+  const vbtn=document.getElementById('gate-validate-btn');
+  if(!vd||!vbtn) return;
+
+  if(!allDone){
+    vd.className='verdict pending mt12';
+    vd.innerHTML=`<div class="verdict-title">⏳ ${answered}/${CRITERIA.length} critères</div>
+      <div class="verdict-sub">Réponds à tous pour le verdict</div>`;
+    vbtn.disabled=true;
+  } else if(!condOk){
+    vd.className='verdict pending mt12';
+    const missingCond=ENTRY_CONDITIONS.filter(c=>!_gateConds[c.id]).length;
+    vd.innerHTML=`<div class="verdict-title">📊 ${missingCond} condition(s) manquante(s)</div>
+      <div class="verdict-sub">Coche toutes les conditions d'entrée</div>`;
+    vbtn.disabled=canTrade?false:true;
+  } else if(canTrade){
+    vd.className='verdict go mt12';
+    vd.innerHTML=`<div class="verdict-title" style="color:var(--grn)">✅ VOUS POUVEZ TRADER</div>
+      <div class="verdict-sub" style="color:var(--grn)">${okCount}/7 OK · Toutes conditions ✅ · Bonne session !</div>`;
+    vbtn.disabled=false;
+  } else {
+    vd.className='verdict nogo mt12';
+    vd.innerHTML=`<div class="verdict-title" style="color:var(--red)">⛔ NE PAS TRADER AUJOURD'HUI</div>
+      <div class="verdict-sub" style="color:var(--red)">${okCount}/7 OK — Minimum ${CHECK_THRESHOLD}/7 requis</div>`;
+    vbtn.disabled=false; // still let them save but UI is red
+  }
+}
+
+async function validateGate(){
+  const a=acct(); if(!a) return;
+  const d=today();
+  const okCount=Object.values(_gateChecks).filter(v=>v===true).length;
+  const answered=Object.keys(_gateChecks).length;
+  const condOk=ENTRY_CONDITIONS.every(c=>_gateConds[c.id]);
+  const canTrade=answered>=CRITERIA.length && okCount>=CHECK_THRESHOLD && condOk;
+  if(!state.dailies[a.id]) state.dailies[a.id]={};
+  state.dailies[a.id][d]={
+    ...(state.dailies[a.id][d]||{}),
+    mainEmotion:_gateEmo, criteria:{..._gateChecks},
+    conditions:{..._gateConds}, canTrade, gatePassed:true,
+    discipline:(state.dailies[a.id][d]||{}).discipline||5,
+    note:(state.dailies[a.id][d]||{}).note||'',
+    mistakes:(state.dailies[a.id][d]||{}).mistakes||'',
+    lessons:(state.dailies[a.id][d]||{}).lessons||'',
+  };
+  await saveAll();
+  document.getElementById('gate-overlay').classList.remove('open');
+  _gateChecks={}; _gateConds={}; _gateEmo='';
+  renderApp();
+}
+function skipGate(){
+  document.getElementById('gate-overlay').classList.remove('open');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════════════════════
+function showPage(name,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  if(btn) btn.classList.add('active');
+  if(name==='dashboard') renderDashboard();
+  if(name==='journal')   renderJournal();
+  if(name==='history')   renderHistory();
+  if(name==='stats')     renderStats();
+  if(name==='settings')  renderSettings();
+}
+
+function renderApp(){
+  renderAccountTabs();
+  const activePage=document.querySelector('.page.active');
+  if(activePage) showPage(activePage.id.replace('page-',''),null);
+  else renderDashboard();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ACCOUNT TABS
+// ══════════════════════════════════════════════════════════════
+function renderAccountTabs(){
+  const tabs=document.getElementById('acctTabs');
+  tabs.innerHTML=state.accounts.map(a=>`
+    <div class="acct-chip ${a.id===activeAcctId?'active':''}"
+      onclick="switchAcct('${a.id}')">${a.name}</div>
+  `).join('')+
+  `<div class="acct-chip add-btn" onclick="openAddAcctModal()">➕ Compte</div>`;
+}
+function switchAcct(id){
+  activeAcctId=id;
+  renderAccountTabs();
+  renderApp();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  STATISTICS ENGINE
+// ══════════════════════════════════════════════════════════════
+function getStats(aid=activeAcctId){
+  const a=state.accounts.find(x=>x.id===aid)||acct();
+  const trades=myTrades(aid);
+  if(!trades.length) return emptyStats(a);
+  const wins  =trades.filter(t=>t.result==='win');
+  const losses=trades.filter(t=>t.result==='loss');
+  const tGain =wins.reduce((s,t)=>s+t.amount,0);
+  const tLoss =losses.reduce((s,t)=>s+Math.abs(t.amount),0);
+  const net   =trades.reduce((s,t)=>s+t.amount,0);
+  const wr    =wins.length/trades.length*100;
+  const pf    =tLoss>0?tGain/tLoss:Infinity;
+  const avgRR =trades.reduce((s,t)=>s+t.rr,0)/trades.length;
+  const ev    =net/trades.length;
+  const sorted=[...trades].sort((a,b)=>b.amount-a.amount);
+  // Streaks
+  let curS=0,curST='',maxW=0,maxL=0,ws=0,ls=0;
+  for(let i=trades.length-1;i>=0;i--){
+    const r=trades[i].result; if(r==='be') continue;
+    if(!curST){curST=r;curS=1;} else if(r===curST) curS++; else break;
+  }
+  trades.forEach(t=>{
+    if(t.result==='win'){ws++;ls=0;if(ws>maxW)maxW=ws;}
+    else if(t.result==='loss'){ls++;ws=0;if(ls>maxL)maxL=ls;}
+  });
+  // Equity
+  const st=[...trades].sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+  let cum=0; const eq=[0]; st.forEach(t=>{cum+=t.amount;eq.push(cum);});
+  // PNL periods
+  const now=new Date(), todayStr=today();
+  const mFilter=t=>{const d=new Date(t.date);return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();};
+  const wStart=new Date(now); wStart.setDate(now.getDate()-(now.getDay()+6)%7); wStart.setHours(0,0,0,0);
+  const wFilter=t=>new Date(t.date+'T00:00:00')>=wStart;
+  const todayTrades=trades.filter(t=>t.date===todayStr);
+  const dailyDD=Math.max(0,-todayTrades.reduce((s,t)=>s+t.amount,0));
+  // Global DD from peak
+  let peak=0,run=0,curDD=0;
+  st.forEach(t=>{run+=t.amount;if(run>peak)peak=run;curDD=peak-run;});
+  return {
+    total:trades.length,wins:wins.length,losses:losses.length,
+    tGain,tLoss,net,wr,pf,avgRR,ev,
+    best:sorted[0]?.amount||0, worst:sorted[sorted.length-1]?.amount||0,
+    maxWin:maxW,maxLoss:maxL,curStreak:curS,curStreakType:curST,
+    equity:eq,dailyDD,curDD,
+    dayPnl:todayTrades.reduce((s,t)=>s+t.amount,0),
+    weekPnl:trades.filter(wFilter).reduce((s,t)=>s+t.amount,0),
+    monthPnl:trades.filter(mFilter).reduce((s,t)=>s+t.amount,0),
+    balance:a.capital+net,
+    todayTrades:todayTrades.length,
+    todayLosses:todayTrades.filter(t=>t.result==='loss').length,
+  };
+}
+function emptyStats(a){
+  const cap=a?a.capital:0;
+  return {total:0,wins:0,losses:0,tGain:0,tLoss:0,net:0,wr:0,pf:0,avgRR:0,ev:0,
+    best:0,worst:0,maxWin:0,maxLoss:0,curStreak:0,curStreakType:'',equity:[0],
+    dailyDD:0,curDD:0,dayPnl:0,weekPnl:0,monthPnl:0,balance:cap,
+    todayTrades:0,todayLosses:0};
+}
+
+// ══════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ══════════════════════════════════════════════════════════════
+function renderDashboard(){
+  const a=acct(); if(!a) return;
+  const s=getStats();
+  const dn=dayNumber();
+  const d=today();
+  const entry=(state.dailies[a.id]||{})[d];
+  const canTrade=entry?entry.canTrade:null;
+  const ddDayPct=cl(s.dailyDD/a.ddDaily,0,1);
+  const ddGlobPct=cl(s.curDD/a.ddGlobal,0,1);
+
+  document.getElementById('page-dashboard').innerHTML=`
+    <!-- Balance hero -->
+    <div class="card mb12" style="background:linear-gradient(135deg,#0f1217,#161b22);border-color:#2a3340">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div class="stat-label">SOLDE ACTUEL</div>
+          <div style="font-family:'Space Mono',monospace;font-size:1.8rem;font-weight:700;
+            color:var(--gold);margin:4px 0">${fmtA(s.balance,a.currency)}</div>
+          <div style="font-size:.72rem;color:var(--txt2)">Capital: ${fmtA(a.capital,a.currency)}
+            · Net: <span class="${cc(s.net)}">${fmt(s.net,a.currency)}</span></div>
+        </div>
+        ${dn?`<div class="day-badge">Jour ${dn}</div>`:''}
+      </div>
+    </div>
+
+    <!-- Today banner -->
+    ${s.todayLosses>=a.maxLosses?`<div class="banner stop show">⛔ STOP TRADING — ${s.todayLosses} pertes aujourd'hui</div>`:''}
+    ${ddDayPct>=0.7&&ddDayPct<1?`<div class="banner warn show">⚠️ DD Daily à ${(ddDayPct*100).toFixed(0)}% de la limite</div>`:''}
+
+    <!-- Checklist status -->
+    ${entry?`
+      <div class="banner ${canTrade?'info':'stop'} show mb12">
+        ${canTrade?'✅ Checklist OK — Tu peux trader aujourd\'hui':'⛔ Checklist: NE PAS TRADER'}
+        <button class="btn ghost sm" style="margin-left:auto;padding:3px 8px" onclick="openGate()">Modifier</button>
+      </div>
+    `:`<div class="banner warn show mb12">
+        ⚠️ Checklist non faite aujourd'hui
+        <button class="btn sm" style="margin-left:auto;padding:3px 8px" onclick="openGate()">Faire maintenant</button>
+      </div>`}
+
+    <!-- Stats grid -->
+    <div class="stat-grid g4 mb12">
+      <div class="stat-card">
+        <div class="stat-label">WIN RATE</div>
+        <div class="stat-val ${s.wr>=50?'pos':'neg'}">${s.wr.toFixed(1)}%</div>
+        <div class="stat-sub">${s.wins}W · ${s.losses}L</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">PROFIT FACTOR</div>
+        <div class="stat-val ${s.pf>=1?'pos':'neg'}">${s.pf===Infinity?'∞':s.pf.toFixed(2)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">RR MOYEN</div>
+        <div class="stat-val ${s.avgRR>=1.5?'pos':'neu'}">${s.avgRR.toFixed(2)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">ESPÉRANCE</div>
+        <div class="stat-val ${cc(s.ev)}">${s.ev>=0?'+':''}${s.ev.toFixed(2)}</div>
+      </div>
+    </div>
+
+    <!-- PNL periods -->
+    <div class="stat-grid g3 mb12">
+      <div class="stat-card">
+        <div class="stat-label">AUJOURD'HUI</div>
+        <div class="stat-val ${cc(s.dayPnl)}">${fmt(s.dayPnl,a.currency)}</div>
+        <div class="stat-sub">${s.todayTrades} trade(s)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">SEMAINE</div>
+        <div class="stat-val ${cc(s.weekPnl)}">${fmt(s.weekPnl,a.currency)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">MOIS</div>
+        <div class="stat-val ${cc(s.monthPnl)}">${fmt(s.monthPnl,a.currency)}</div>
+      </div>
+    </div>
+
+    <!-- Equity curve -->
+    <div class="card mb12">
+      <div class="card-title">📈 COURBE D'ÉQUITÉ</div>
+      <div class="eq-canvas-wrap"><canvas id="eqCanvas"></canvas></div>
+    </div>
+
+    <!-- DD Meters -->
+    <div class="stat-grid g2 mb12">
+      <div class="dd-meter ${ddDayPct>0.8?'danger':ddDayPct>0.5?'warn':'safe'}">
+        <div class="stat-label">⚡ DD DAILY</div>
+        <div class="flex-between mt8">
+          <span class="stat-val neg">${fmtA(s.dailyDD,a.currency)}</span>
+          <span style="font-family:'Space Mono',monospace;font-size:.7rem;color:var(--muted)">/ ${a.ddDaily}</span>
+        </div>
+        <div class="prog-wrap h4 mt8"><div class="prog-fill h4"
+          style="width:${cl(ddDayPct*100,0,100)}%;background:${ddDayPct>0.8?'var(--red)':ddDayPct>0.5?'var(--goldl)':'var(--grn)'}"></div></div>
+      </div>
+      <div class="dd-meter ${ddGlobPct>0.8?'danger':ddGlobPct>0.5?'warn':'safe'}">
+        <div class="stat-label">💀 DD GLOBAL</div>
+        <div class="flex-between mt8">
+          <span class="stat-val neg">${fmtA(s.curDD,a.currency)}</span>
+          <span style="font-family:'Space Mono',monospace;font-size:.7rem;color:var(--muted)">/ ${a.ddGlobal}</span>
+        </div>
+        <div class="prog-wrap h4 mt8"><div class="prog-fill h4"
+          style="width:${cl(ddGlobPct*100,0,100)}%;background:${ddGlobPct>0.8?'var(--red)':ddGlobPct>0.5?'var(--goldl)':'var(--grn)'}"></div></div>
+      </div>
+    </div>
+
+    <!-- Objectives -->
+    <div class="section-title mt16">🎯 Objectifs</div>
+    ${renderObjectivesHTML(a)}
+
+    <!-- Recent trades -->
+    <div class="section-title mt16">🕐 Trades récents</div>
+    ${myTrades().slice(-5).reverse().map(t=>tradeItemHTML(t,a)).join('')||
+      '<div class="empty"><div class="empty-icon">📭</div>Aucun trade encore</div>'}
+  `;
+  drawEquityCurve('eqCanvas', s.equity, s.net, a);
+}
+
+// ── Equity Curve ──
+function drawEquityCurve(canvasId, eq, net, a){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas||eq.length<2) return;
+  const dpr=window.devicePixelRatio||1;
+  const W=canvas.parentElement.offsetWidth, H=140;
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const minY=Math.min(...eq)-5, maxY=Math.max(...eq)+5;
+  const range=maxY-minY||1;
+  const pad=14, xStep=(W-pad*2)/(eq.length-1);
+  const toX=i=>pad+i*xStep;
+  const toY=v=>H-pad-(v-minY)/range*(H-pad*2);
+  const color=net>=0?'#00E5A0':'#FF4D6D';
+  // Zero line
+  ctx.strokeStyle='rgba(255,255,255,.07)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(pad,toY(0)); ctx.lineTo(W-pad,toY(0)); ctx.stroke();
+  ctx.setLineDash([]);
+  // Fill
+  const grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,net>=0?'rgba(0,229,160,.22)':'rgba(255,77,109,.22)');
+  grad.addColorStop(1,net>=0?'rgba(0,229,160,.02)':'rgba(255,77,109,.02)');
+  ctx.beginPath(); ctx.moveTo(toX(0),toY(eq[0]));
+  eq.forEach((v,i)=>{ if(i>0) ctx.lineTo(toX(i),toY(v)); });
+  ctx.lineTo(toX(eq.length-1),H); ctx.lineTo(toX(0),H); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+  // Line
+  ctx.beginPath(); ctx.moveTo(toX(0),toY(eq[0]));
+  eq.forEach((v,i)=>{ if(i>0) ctx.lineTo(toX(i),toY(v)); });
+  ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
+  // Dot
+  const lx=toX(eq.length-1), ly=toY(eq[eq.length-1]);
+  ctx.beginPath(); ctx.arc(lx,ly,4,0,Math.PI*2);
+  ctx.fillStyle=color; ctx.fill();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  JOURNAL PAGE
+// ══════════════════════════════════════════════════════════════
+function renderJournal(){
+  const a=acct(); if(!a) return;
+  const s=getStats();
+  const d=today();
+  const dTrades=dayTrades(d);
+  const dLosses=dTrades.filter(t=>t.result==='loss').length;
+  const dPnl=dTrades.reduce((s,t)=>s+t.amount,0);
+  const entry=(state.dailies[a.id]||{})[d]||{};
+  const canTrade=entry.canTrade;
+  const isStop=dTrades.length>=a.maxTrades||dLosses>=a.maxLosses;
+  const dn=dayNumber();
+  document.getElementById('page-journal').innerHTML=`
+    ${isStop?`<div class="banner stop show">⛔ STOP — ${dLosses>=a.maxLosses?'Max pertes':'Max trades'} atteint</div>`:''}
+    ${!entry.gatePassed?`<div class="banner warn show">
+      ⚠️ Checklist non faite — <button class="btn sm" style="margin-left:6px" onclick="openGate()">Faire maintenant</button>
+    </div>`:''}
+
+    <!-- Today header -->
+    <div class="card mb12">
+      <div class="flex-between">
+        <div>
+          <div class="stat-label">AUJOURD'HUI · ${d}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:1.1rem;font-weight:700;
+            margin-top:4px" class="${cc(dPnl)}">${fmt(dPnl,a.currency)}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          ${dn?`<span class="day-badge">Jour ${dn}</span>`:''}
+          <span style="font-size:.72rem;color:var(--muted)">${dTrades.length}/${a.maxTrades} trades</span>
+        </div>
+      </div>
+      <div class="prog-wrap h4 mt8" style="margin-top:8px">
+        <div class="prog-fill h4" style="width:${dTrades.length/a.maxTrades*100}%;
+          background:${dLosses>=a.maxLosses?'var(--red)':'var(--gold)'}"></div>
+      </div>
+      ${entry.mainEmotion?`<div style="font-size:.8rem;margin-top:8px">Humeur: ${entry.mainEmotion}</div>`:''}
+    </div>
+
+    <!-- Trades today -->
+    <div class="flex-between mb8">
+      <div class="section-title" style="margin:0">Trades du jour</div>
+      <button class="btn sm ${(!entry.gatePassed||isStop)?'ghost':''}"
+        onclick="${(!entry.gatePassed||isStop)?'alert(\"'+(isStop?'Stop trading atteint !':'Fais la checklist d\\\\'abord !') +'\")'  :'openAddTradeModal()'}"
+        ${isStop?'disabled':''}>
+        ➕ Ajouter
+      </button>
+    </div>
+    ${dTrades.length?dTrades.map(t=>tradeItemHTML(t,a)).join(''):
+      `<div class="empty"><div class="empty-icon">📭</div>Aucun trade aujourd'hui</div>`}
+
+    <hr class="sep">
+
+    <!-- Daily note -->
+    <div class="section-title">📝 Journal du jour</div>
+    <div class="field mb8">
+      <label>Note de session</label>
+      <textarea id="jrn-note" rows="3" placeholder="Bilan, observations marché…"
+        onblur="saveJournalNote('note',this.value)">${entry.note||''}</textarea>
+    </div>
+    <div class="stat-grid g2 mb8">
+      <div class="field">
+        <label>Erreurs commises</label>
+        <textarea id="jrn-mistakes" rows="2" placeholder="Ce que j'ai mal fait…"
+          onblur="saveJournalNote('mistakes',this.value)">${entry.mistakes||''}</textarea>
+      </div>
+      <div class="field">
+        <label>Leçons apprises</label>
+        <textarea id="jrn-lessons" rows="2" placeholder="Ce que j'ai appris…"
+          onblur="saveJournalNote('lessons',this.value)">${entry.lessons||''}</textarea>
+      </div>
+    </div>
+    <div class="field">
+      <label>Discipline (1-10) : <span id="disc-val" style="color:var(--goldl)">${entry.discipline||5}</span></label>
+      <input type="range" min="1" max="10" value="${entry.discipline||5}"
+        oninput="document.getElementById('disc-val').textContent=this.value"
+        onchange="saveJournalNote('discipline',parseInt(this.value))">
+    </div>
+  `;
+}
+
+async function saveJournalNote(field,val){
+  const a=acct(); if(!a) return;
+  const d=today();
+  if(!state.dailies[a.id]) state.dailies[a.id]={};
+  if(!state.dailies[a.id][d]) state.dailies[a.id][d]={};
+  state.dailies[a.id][d][field]=val;
+  await saveAll();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ADD / EDIT TRADE MODAL
+// ══════════════════════════════════════════════════════════════
+function openAddTradeModal(editId=null){
+  const a=acct(); if(!a) return;
+  gateEditId=editId;
+  const t=editId?myTrades().find(x=>x.id===editId):null;
+  const now=new Date();
+  const hh=String(now.getHours()).padStart(2,'0');
+  const mm=String(now.getMinutes()).padStart(2,'0');
+
+  document.getElementById('tradeModalTitle').textContent=editId?'✏️ Modifier le trade':'➕ Nouveau trade';
+  document.getElementById('tradeModalBody').innerHTML=`
+    <!-- Date & Heure -->
+    <div class="stat-grid g2 mb12">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="tf-date" value="${t?.date||today()}">
+      </div>
+      <div class="field">
+        <label>Heure</label>
+        <input type="time" id="tf-time" value="${t?.time||hh+':'+mm}">
+      </div>
+    </div>
+
+    <!-- Paire & Direction -->
+    <div class="field mb8">
+      <label>Paire / Actif</label>
+      <div class="filter-row mb8">
+        ${PAIRS.map(p=>`<span class="filter-chip ${(t?.pair||'XAUUSD')===p?'active':''}"
+          onclick="selectChip(this,'tf-pair','${p}')">${p}</span>`).join('')}
+      </div>
+      <input type="text" id="tf-pair" value="${t?.pair||'XAUUSD'}" placeholder="XAUUSD…">
+    </div>
+
+    <!-- Direction -->
+    <div class="stat-grid g2 mb12">
+      <div>
+        <div class="card-title">DIRECTION</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn ${(t?.direction||'BUY')==='BUY'?'':'ghost'}" id="btn-buy"
+            style="flex:1;background:${(t?.direction||'BUY')==='BUY'?'var(--grn)':'var(--surf2)'};
+            color:${(t?.direction||'BUY')==='BUY'?'#000':'var(--grn)'};border-color:var(--grn)"
+            onclick="setDirection('BUY')">▲ BUY</button>
+          <button class="btn ${(t?.direction||'BUY')==='SELL'?'':'ghost'}" id="btn-sell"
+            style="flex:1;background:${(t?.direction||'BUY')==='SELL'?'var(--red)':'var(--surf2)'};
+            color:${(t?.direction||'BUY')==='SELL'?'#fff':'var(--red)'};border-color:var(--red)"
+            onclick="setDirection('SELL')">▼ SELL</button>
+        </div>
+      </div>
+      <div>
+        <div class="card-title">RÉSULTAT</div>
+        <select id="tf-result">
+          <option value="win" ${t?.result==='win'?'selected':''}>✅ Gain</option>
+          <option value="loss" ${t?.result==='loss'?'selected':''}>❌ Perte</option>
+          <option value="be" ${t?.result==='be'?'selected':''}>➖ Break Even</option>
+        </select>
+      </div>
+    </div>
+    <input type="hidden" id="tf-direction" value="${t?.direction||'BUY'}">
+
+    <!-- Chiffres -->
+    <div class="stat-grid g2 mb12">
+      <div class="field">
+        <label>Montant ${a.currency}</label>
+        <input type="number" id="tf-amount" step="0.01" placeholder="0.00"
+          value="${t?Math.abs(t.amount):''}">
+      </div>
+      <div class="field">
+        <label>Taille lot</label>
+        <input type="number" id="tf-lot" step="0.01" placeholder="0.01"
+          value="${t?.lotSize||'0.01'}">
+      </div>
+    </div>
+    <div class="stat-grid g2 mb12">
+      <div class="field">
+        <label>Risque ${a.currency}</label>
+        <input type="number" id="tf-risk" step="0.01" value="${t?.risk||a.riskPerTrade}">
+      </div>
+      <div class="field">
+        <label>RR</label>
+        <input type="number" id="tf-rr" step="0.1" placeholder="2.0"
+          value="${t?.rr||'2.0'}">
+      </div>
+    </div>
+
+    <!-- Session & Setup -->
+    <div class="stat-grid g2 mb12">
+      <div class="field">
+        <label>Session</label>
+        <select id="tf-session">
+          ${SESSIONS.map(s=>`<option ${t?.session===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Setup</label>
+        <select id="tf-setup">
+          ${SETUPS.map(s=>`<option ${t?.setup===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    ${a.setupAPlus?`<div class="field mb12">
+      <label>Grade setup ⭐</label>
+      <select id="tf-grade">
+        <option value="A+" ${(t?.setupGrade||'A+')==='A+'?'selected':''}>⭐ A+</option>
+        <option value="A" ${t?.setupGrade==='A'?'selected':''}>A</option>
+        <option value="B" ${t?.setupGrade==='B'?'selected':''}>B</option>
+      </select>
+    </div>`:'<input type="hidden" id="tf-grade" value="A+">'}
+
+    <!-- Émotions -->
+    <div class="field mb8">
+      <label>Émotion AVANT</label>
+      <div class="emo-wrap" id="emo-before">
+        ${EMOTIONS.map(e=>`<span class="emo-chip ${(t?.emotionBefore||'')===e?'sel':''}"
+          onclick="setEmotion('before',this,'${e}')">${e}</span>`).join('')}
+      </div>
+      <input type="hidden" id="tf-emo-before" value="${t?.emotionBefore||''}">
+    </div>
+    <div class="field mb12">
+      <label>Émotion APRÈS</label>
+      <div class="emo-wrap" id="emo-after">
+        ${EMOTIONS.map(e=>`<span class="emo-chip ${(t?.emotionAfter||'')===e?'sel':''}"
+          onclick="setEmotion('after',this,'${e}')">${e}</span>`).join('')}
+      </div>
+      <input type="hidden" id="tf-emo-after" value="${t?.emotionAfter||''}">
+    </div>
+
+    <!-- Screenshot -->
+    <div class="field mb12">
+      <label>📸 Capture TradingView</label>
+      <div class="ss-box" id="ss-preview-box" onclick="triggerSSUpload()">
+        ${t?.screenshotData?
+          `<img src="${t.screenshotData}" alt="screenshot">
+           <button class="ss-remove" onclick="removeScreenshot(event)">✕</button>`
+          :`<span class="ss-icon">📸</span>
+           <span class="ss-box-label">Toucher pour ajouter une capture</span>`}
+      </div>
+      <input type="file" id="ss-file-input" accept="image/*" style="display:none"
+        onchange="previewScreenshot(event)">
+      <input type="hidden" id="tf-screenshot" value="${t?.screenshotData||''}">
+    </div>
+
+    <!-- Note -->
+    <div class="field mb16">
+      <label>Commentaire</label>
+      <textarea id="tf-note" rows="3"
+        placeholder="Analyse, raison du trade, leçons…">${t?.note||''}</textarea>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('tradeModal')">Annuler</button>
+      <button class="btn" onclick="saveTrade('${editId||''}')">
+        ${editId?'Mettre à jour':'Enregistrer'}
+      </button>
+    </div>
+  `;
+  openModal('tradeModal');
+}
+
+function selectChip(el,inputId,val){
+  el.closest('.filter-row').querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(inputId).value=val;
+}
+function setDirection(dir){
+  document.getElementById('tf-direction').value=dir;
+  const buyBtn=document.getElementById('btn-buy');
+  const sellBtn=document.getElementById('btn-sell');
+  buyBtn.style.background=dir==='BUY'?'var(--grn)':'var(--surf2)';
+  buyBtn.style.color=dir==='BUY'?'#000':'var(--grn)';
+  sellBtn.style.background=dir==='SELL'?'var(--red)':'var(--surf2)';
+  sellBtn.style.color=dir==='SELL'?'#fff':'var(--red)';
+}
+function setEmotion(which,el,val){
+  const containerId='emo-'+which;
+  document.getElementById(containerId).querySelectorAll('.emo-chip')
+    .forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('tf-emo-'+which).value=val;
+}
+function triggerSSUpload(){ document.getElementById('ss-file-input').click(); }
+function previewScreenshot(e){
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const data=ev.target.result;
+    document.getElementById('tf-screenshot').value=data;
+    const box=document.getElementById('ss-preview-box');
+    box.innerHTML=`<img src="${data}" alt="screenshot" style="width:100%;max-height:220px;object-fit:contain;border-radius:8px">
+      <button class="ss-remove" onclick="removeScreenshot(event)">✕</button>`;
+  };
+  reader.readAsDataURL(file);
+}
+function removeScreenshot(e){
+  e.stopPropagation();
+  document.getElementById('tf-screenshot').value='';
+  document.getElementById('ss-preview-box').innerHTML=`
+    <span class="ss-icon">📸</span>
+    <span class="ss-box-label">Toucher pour ajouter une capture</span>`;
+}
+
+async function saveTrade(editId){
+  const a=acct(); if(!a) return;
+  const pair=document.getElementById('tf-pair').value.trim()||'XAUUSD';
+  const result=document.getElementById('tf-result').value;
+  const amount=parseFloat(document.getElementById('tf-amount').value)||0;
+  const finalAmount=result==='loss'?-Math.abs(amount):result==='be'?0:Math.abs(amount);
+  const d=document.getElementById('tf-date').value||today();
+  const dn2=()=>{
+    const sd=state.settings.startDates[a.id];
+    if(!sd) return 1;
+    try{ return Math.floor((new Date(d+'T00:00:00')-new Date(sd+'T00:00:00'))/86400000)+1;}
+    catch{return 1;}
+  };
+  const trade={
+    id:editId||uid(), accountId:a.id, pair,
+    direction:document.getElementById('tf-direction').value,
+    result, amount:finalAmount,
+    lotSize:parseFloat(document.getElementById('tf-lot').value)||0.01,
+    risk:parseFloat(document.getElementById('tf-risk').value)||a.riskPerTrade,
+    rr:parseFloat(document.getElementById('tf-rr').value)||2,
+    date:d, time:document.getElementById('tf-time').value,
+    session:document.getElementById('tf-session').value,
+    setup:document.getElementById('tf-setup').value,
+    setupGrade:document.getElementById('tf-grade').value,
+    emotionBefore:document.getElementById('tf-emo-before').value,
+    emotionAfter:document.getElementById('tf-emo-after').value,
+    screenshotData:document.getElementById('tf-screenshot').value,
+    note:document.getElementById('tf-note').value,
+    dayNumber:dn2(), createdAt:new Date().toISOString(),
+  };
+  if(!state.trades[a.id]) state.trades[a.id]=[];
+  if(editId){
+    const idx=state.trades[a.id].findIndex(t=>t.id===editId);
+    if(idx>-1) state.trades[a.id][idx]=trade; else state.trades[a.id].push(trade);
+  } else {
+    state.trades[a.id].push(trade);
+  }
+  await saveAll();
+  closeModal('tradeModal');
+  renderApp();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HISTORY
+// ══════════════════════════════════════════════════════════════
+function renderHistory(){
+  const a=acct(); if(!a) return;
+  let trades=[...myTrades()].sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time));
+  // Apply filters
+  if(histFilters.search) trades=trades.filter(t=>
+    t.pair.toLowerCase().includes(histFilters.search.toLowerCase())||
+    t.note?.toLowerCase().includes(histFilters.search.toLowerCase())||
+    t.setup?.toLowerCase().includes(histFilters.search.toLowerCase()));
+  if(histFilters.result!=='all') trades=trades.filter(t=>t.result===histFilters.result);
+  if(histFilters.dir!=='all') trades=trades.filter(t=>t.direction===histFilters.dir);
+  if(histFilters.pair!=='all') trades=trades.filter(t=>t.pair===histFilters.pair);
+  const pairs=[...new Set(myTrades().map(t=>t.pair))];
+
+  document.getElementById('page-history').innerHTML=`
+    <!-- Search -->
+    <div class="search-bar mb8">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="Chercher par paire, setup, note…"
+        value="${histFilters.search}"
+        oninput="histFilters.search=this.value;renderHistory()">
+    </div>
+    <!-- Filters -->
+    <div class="filter-row mb12">
+      <span class="filter-chip ${histFilters.result==='all'?'active':''}"
+        onclick="setHistFilter('result','all')">Tous</span>
+      <span class="filter-chip ${histFilters.result==='win'?'active':''}"
+        onclick="setHistFilter('result','win')">✅ Gains</span>
+      <span class="filter-chip ${histFilters.result==='loss'?'active':''}"
+        onclick="setHistFilter('result','loss')">❌ Pertes</span>
+      <span class="filter-chip ${histFilters.result==='be'?'active':''}"
+        onclick="setHistFilter('result','be')">➖ BE</span>
+      <span class="filter-chip ${histFilters.dir==='BUY'?'active':''}"
+        onclick="setHistFilter('dir','BUY')">▲ BUY</span>
+      <span class="filter-chip ${histFilters.dir==='SELL'?'active':''}"
+        onclick="setHistFilter('dir','SELL')">▼ SELL</span>
+      ${pairs.map(p=>`<span class="filter-chip ${histFilters.pair===p?'active':''}"
+        onclick="setHistFilter('pair','${p}')">${p}</span>`).join('')}
+    </div>
+    <!-- List -->
+    <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px">${trades.length} trade(s)</div>
+    ${trades.length?trades.map(t=>tradeItemHTML(t,a)).join(''):
+      '<div class="empty"><div class="empty-icon">🔍</div>Aucun résultat</div>'}
+  `;
+}
+function setHistFilter(key,val){
+  if(histFilters[key]===val) histFilters[key]='all';
+  else histFilters[key]=val;
+  renderHistory();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  STATS PAGE
+// ══════════════════════════════════════════════════════════════
+function renderStats(){
+  const a=acct(); if(!a) return;
+  const s=getStats();
+  // Weekly
+  const now=new Date(), day=now.getDay();
+  const mon=new Date(now); mon.setDate(now.getDate()-((day+6)%7)+weekOffset*7); mon.setHours(0,0,0,0);
+  const wDays=Array.from({length:7},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d;});
+  const wLabels=['L','M','M','J','V','S','D'];
+  const wPnls=wDays.map(d=>{const k=toKey(d);return dayTrades(k).reduce((s,t)=>s+t.amount,0);});
+  const wTotal=wPnls.reduce((a,b)=>a+b,0);
+
+  // Monthly
+  const mRef=new Date(now.getFullYear(),now.getMonth()+monthOffset,1);
+  const mYear=mRef.getFullYear(), mMonth=mRef.getMonth();
+  const dInM=new Date(mYear,mMonth+1,0).getDate();
+  let wStart2=1; const weeks=[];
+  while(wStart2<=dInM){
+    const wEnd=Math.min(wStart2+6,dInM);
+    let wp=0; for(let d=wStart2;d<=wEnd;d++){
+      const k=`${mYear}-${String(mMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      wp+=dayTrades(k).reduce((s,t)=>s+t.amount,0);
+    }
+    weeks.push({label:`${wStart2}-${wEnd}`,pnl:wp}); wStart2+=7;
+  }
+  const mTotal=weeks.reduce((s,w)=>s+w.pnl,0);
+  // Heatmap data
+  const heatData=getMonthlyHeatmap(mYear,mMonth);
+
+  document.getElementById('page-stats').innerHTML=`
+    <!-- Advanced Stats -->
+    <div class="section-title">📊 Statistiques avancées</div>
+    <div class="stat-grid g2 mb12">
+      <div class="stat-card"><div class="stat-label">MEILLEUR TRADE</div>
+        <div class="stat-val pos">+${s.best.toFixed(2)} ${a.currency}</div></div>
+      <div class="stat-card"><div class="stat-label">PIRE TRADE</div>
+        <div class="stat-val neg">${s.worst.toFixed(2)} ${a.currency}</div></div>
+      <div class="stat-card"><div class="stat-label">SÉRIE GAINS MAX</div>
+        <div class="stat-val pos">${s.maxWin} trades</div></div>
+      <div class="stat-card"><div class="stat-label">SÉRIE PERTES MAX</div>
+        <div class="stat-val neg">${s.maxLoss} trades</div></div>
+      <div class="stat-card"><div class="stat-label">STREAK ACTUEL</div>
+        <div class="stat-val ${s.curStreakType==='win'?'pos':'neg'}">
+          ${s.curStreak?s.curStreak+' '+(s.curStreakType==='win'?'✅':'❌'):'—'}</div></div>
+      <div class="stat-card"><div class="stat-label">TOTAL TRADES</div>
+        <div class="stat-val">${s.total}</div>
+        <div class="stat-sub">✅${s.wins} ❌${s.losses}</div></div>
+    </div>
+
+    <!-- Weekly -->
+    <div class="card mb12">
+      <div class="flex-between mb12">
+        <div class="card-title" style="margin:0">📅 SEMAINE</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn ghost sm" onclick="weekOffset--;renderStats()">‹</button>
+          <span style="font-family:'Space Mono',monospace;font-size:.7rem;color:var(--muted)">
+            ${wDays[0].toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})} →
+            ${wDays[6].toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})}</span>
+          <button class="btn ghost sm" onclick="weekOffset++;renderStats()">›</button>
+        </div>
+      </div>
+      <div style="font-family:'Space Mono',monospace;font-size:.95rem;font-weight:700;
+        margin-bottom:10px" class="${cc(wTotal)}">${fmt(wTotal,a.currency)}</div>
+      <div class="mini-bars">${miniBarHTML(wPnls)}</div>
+      <div class="mini-bar-labels">${wLabels.map(l=>`<span class="mini-bar-label">${l}</span>`).join('')}</div>
+      <table class="sum-table mt12">
+        <thead><tr><th>Jour</th><th>Trades</th><th>P&L</th></tr></thead>
+        <tbody>${wDays.map((d,i)=>{
+          const k=toKey(d), tt=dayTrades(k), p=tt.reduce((s,t)=>s+t.amount,0);
+          return `<tr><td>${wLabels[i]} ${d.getDate()}</td><td>${tt.length}</td>
+            <td class="${cc(p)}">${tt.length?fmt(p,a.currency):'—'}</td></tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>
+
+    <!-- Monthly -->
+    <div class="card mb12">
+      <div class="flex-between mb12">
+        <div class="card-title" style="margin:0">📆 MOIS</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn ghost sm" onclick="monthOffset--;renderStats()">‹</button>
+          <span style="font-family:'Space Mono',monospace;font-size:.7rem;color:var(--muted)">
+            ${mRef.toLocaleDateString('fr-FR',{month:'long',year:'numeric'}).toUpperCase()}</span>
+          <button class="btn ghost sm" onclick="monthOffset++;renderStats()">›</button>
+        </div>
+      </div>
+      <div style="font-family:'Space Mono',monospace;font-size:.95rem;font-weight:700;
+        margin-bottom:10px" class="${cc(mTotal)}">${fmt(mTotal,a.currency)}</div>
+      <div class="mini-bars">${miniBarHTML(weeks.map(w=>w.pnl))}</div>
+      <div class="mini-bar-labels">${weeks.map(w=>`<span class="mini-bar-label">${w.label.split('-')[0]}</span>`).join('')}</div>
+    </div>
+
+    <!-- Heatmap -->
+    <div class="card mb12">
+      <div class="card-title">🗓 CALENDRIER · ${mRef.toLocaleDateString('fr-FR',{month:'long',year:'numeric'})}</div>
+      ${renderHeatmapHTML(mYear,mMonth,heatData,a)}
+    </div>
+
+    <!-- Emotion correlation -->
+    <div class="card">
+      <div class="card-title">🧠 HUMEUR × PERFORMANCE</div>
+      ${renderEmoCorrelation(a)}
+    </div>
+  `;
+}
+
+function getMonthlyHeatmap(year,month){
+  const res={};
+  const dInM=new Date(year,month+1,0).getDate();
+  for(let d=1;d<=dInM;d++){
+    const k=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    res[k]=dayTrades(k).reduce((s,t)=>s+t.amount,0);
+  }
+  return res;
+}
+
+function renderHeatmapHTML(year,month,data,a){
+  const firstDay=new Date(year,month,1).getDay();
+  const dInM=new Date(year,month+1,0).getDate();
+  const startOff=(firstDay+6)%7;
+  const maxAbs=Math.max(...Object.values(data).map(Math.abs),1);
+  const heads=['L','M','M','J','V','S','D'];
+  let html=`<div class="cal-grid">${heads.map(h=>`<div class="cal-head">${h}</div>`).join('')}`;
+  for(let i=0;i<startOff;i++) html+=`<div class="cal-day other-m"></div>`;
+  for(let d=1;d<=dInM;d++){
+    const k=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const v=data[k]||0, tt=dayTrades(k);
+    const pct=v!==0?Math.abs(v)/maxAbs:0;
+    const bg=v>0?`rgba(0,229,160,${0.1+pct*0.7})`:v<0?`rgba(255,77,109,${0.1+pct*0.7})`:'var(--surf2)';
+    const isT=k===today();
+    html+=`<div class="cal-day ${isT?'today-d':''}" style="background:${bg}" onclick="openDayModal('${k}','${a.id}')">
+      <div class="cal-day-n">${d}</div>
+      ${tt.length?`<div class="cal-pnl ${cc(v)}">${v>=0?'+':''}${v.toFixed(0)}</div>`:''}
+    </div>`;
+  }
+  html+=`</div>`;
+  return html;
+}
+
+function renderEmoCorrelation(a){
+  const emoMap={};
+  Object.entries(state.dailies[a.id]||{}).forEach(([d,entry])=>{
+    const e=entry.mainEmotion; if(!e) return;
+    if(!emoMap[e]) emoMap[e]={pnl:0,trades:0,wins:0,days:0};
+    const tt=dayTrades(d,a.id);
+    emoMap[e].pnl+=tt.reduce((s,t)=>s+t.amount,0);
+    emoMap[e].trades+=tt.length;
+    emoMap[e].wins+=tt.filter(t=>t.result==='win').length;
+    emoMap[e].days++;
+  });
+  const keys=Object.keys(emoMap);
+  if(!keys.length) return '<div class="empty">Pas encore de données</div>';
+  return `<table class="sum-table"><thead><tr>
+    <th>Humeur</th><th>Jours</th><th>WR</th><th>P&L Moy</th>
+  </tr></thead><tbody>${keys.map(k=>{
+    const v=emoMap[k];
+    const wr=v.trades?Math.round(v.wins/v.trades*100):null;
+    const ppd=v.days?v.pnl/v.days:0;
+    return `<tr><td>${k}</td><td>${v.days}</td>
+      <td class="${wr!==null?cc(wr-50):''}">${wr!==null?wr+'%':'—'}</td>
+      <td class="${cc(ppd)}">${fmt(ppd,a.currency)}</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function miniBarHTML(values){
+  const maxA=Math.max(...values.map(Math.abs),0.01);
+  return values.map(v=>`<div class="mini-bar ${v>0?'pos':v<0?'neg':'z'}"
+    style="height:${v!==0?Math.max(3,Math.round(Math.abs(v)/maxA*50)):3}px"
+    title="${v.toFixed(2)}"></div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  OBJECTIVES
+// ══════════════════════════════════════════════════════════════
+function renderObjectivesHTML(a){
+  const objs=state.objectives[a.id]||[];
+  if(!objs.length) return '<div class="empty">Pas d\'objectifs</div>';
+  const s=getStats(a.id);
+  return objs.map(obj=>{
+    let cur=0,max=obj.target,label='';
+    switch(obj.type){
+      case 'pnl_daily':   cur=Math.max(0,s.dayPnl);   label=`${cur.toFixed(2)} / ${max} ${a.currency}`; break;
+      case 'pnl_monthly': cur=Math.max(0,s.monthPnl);  label=`${cur.toFixed(2)} / ${max} ${a.currency}`; break;
+      case 'winrate':     cur=s.wr;                     label=`${cur.toFixed(1)}% / ${max}%`; break;
+      case 'no_loss':     cur=max-s.todayLosses;        label=`${s.todayLosses} SL aujourd'hui (max ${max})`; break;
+      case 'discipline':  cur=((state.dailies[a.id]||{})[today()]||{}).discipline||0;
+                          label=`Discipline ${cur}/10`; break;
+      case 'funded':      cur=Math.max(0,s.net);        label=`${cur.toFixed(2)} / ${max} ${a.currency}`; break;
+      default:            cur=0;
+    }
+    const pct=obj.type==='no_loss'?Math.max(0,1-s.todayLosses/max):cl(cur/max,0,1);
+    const achieved=obj.type==='no_loss'?s.todayLosses===0:cur>=max;
+    const color=achieved?'var(--grn)':pct>0.6?'var(--goldl)':'var(--red)';
+    return `<div class="obj-card">
+      <div class="obj-header">
+        <div class="obj-title">${achieved?'🏆':''} ${obj.title}</div>
+        <span class="obj-pct" style="color:${color}">${(pct*100).toFixed(0)}%</span>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px">${label}</div>
+      <div class="prog-wrap h4"><div class="prog-fill h4"
+        style="width:${pct*100}%;background:${color}"></div></div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SETTINGS
+// ══════════════════════════════════════════════════════════════
+function renderSettings(){
+  const a=acct(); if(!a) return;
+  const startDate=state.settings.startDates[a.id]||today();
+  document.getElementById('page-settings').innerHTML=`
+    <div class="section-title">⚙️ Paramètres</div>
+
+    <!-- Compte actif info -->
+    <div class="card mb12">
+      <div class="card-title">🏢 COMPTE ACTIF : ${a.name}</div>
+      <div class="stat-grid g2 mb8">
+        <div class="field"><label>Capital ($)</label>
+          <input type="number" id="set-capital" value="${a.capital}"
+            onblur="updateAcctField('capital',parseFloat(this.value))"></div>
+        <div class="field"><label>Unité</label>
+          <select id="set-currency" onchange="updateAcctField('currency',this.value)">
+            ${['$','USC','€','£','JPY'].map(c=>`<option ${a.currency===c?'selected':''}>${c}</option>`).join('')}
+          </select></div>
+        <div class="field"><label>Risque/trade</label>
+          <input type="number" id="set-risk" value="${a.riskPerTrade}" step="0.5"
+            onblur="updateAcctField('riskPerTrade',parseFloat(this.value))"></div>
+        <div class="field"><label>DD Daily</label>
+          <input type="number" id="set-ddd" value="${a.ddDaily}"
+            onblur="updateAcctField('ddDaily',parseFloat(this.value))"></div>
+        <div class="field"><label>DD Global</label>
+          <input type="number" id="set-ddg" value="${a.ddGlobal}"
+            onblur="updateAcctField('ddGlobal',parseFloat(this.value))"></div>
+        <div class="field"><label>Max trades/jour</label>
+          <input type="number" id="set-mt" value="${a.maxTrades}"
+            onblur="updateAcctField('maxTrades',parseInt(this.value))"></div>
+      </div>
+      <div class="field mb8">
+        <label>📅 Date Jour 1</label>
+        <input type="date" id="set-startdate" value="${startDate}"
+          onchange="updateStartDate(this.value)">
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:.82rem;cursor:pointer">
+        <input type="checkbox" ${a.setupAPlus?'checked':''}
+          onchange="updateAcctField('setupAPlus',this.checked)">
+        Setups A+ uniquement
+      </label>
+    </div>
+
+    <!-- Comptes -->
+    <div class="card mb12">
+      <div class="card-title">💳 COMPTES (${state.accounts.length})</div>
+      ${state.accounts.map(ac=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;
+          padding:8px 0;border-bottom:1px solid var(--bdr)">
+          <div>
+            <div style="font-weight:700;font-size:.85rem">${ac.name}</div>
+            <div style="font-size:.7rem;color:var(--muted)">${ac.capital} ${ac.currency} · R:${ac.riskPerTrade}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="icon-btn" onclick="switchAcct('${ac.id}')">👁</button>
+            ${state.accounts.length>1?`<button class="icon-btn del"
+              onclick="deleteAccount('${ac.id}')">🗑</button>`:''}
+          </div>
+        </div>
+      `).join('')}
+      <button class="btn ghost full mt12" onclick="openAddAcctModal()">➕ Nouveau compte</button>
+    </div>
+
+    <!-- Checklist gate -->
+    <div class="card mb12">
+      <div class="card-title">✅ CHECKLIST DU JOUR</div>
+      <button class="btn ghost full" onclick="openGate()">🔄 Refaire la checklist</button>
+    </div>
+
+    <!-- Data -->
+    <div class="card mb12">
+      <div class="card-title">💾 DONNÉES</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn ghost full" onclick="exportJSON()">⬇ Exporter JSON</button>
+        <label class="btn ghost full" style="cursor:pointer;justify-content:center">
+          ⬆ Importer JSON
+          <input type="file" accept=".json" style="display:none" onchange="importJSON(event)">
+        </label>
+        <button class="btn ghost full" onclick="exportCSV()">📊 Exporter CSV</button>
+        <button class="btn full" style="background:var(--red);color:#fff"
+          onclick="resetStats()">🗑 Réinitialiser les stats</button>
+      </div>
+    </div>
+
+    <!-- Firebase -->
+    <div class="card">
+      <div class="card-title">☁️ SYNCHRONISATION</div>
+      <div id="sync-status" style="font-size:.8rem;color:var(--muted);margin-bottom:10px">
+        ${window._fbSyncReady?
+          '✅ Firebase connecté — données synchronisées':'⚠️ Mode local — données non synchronisées'}
+      </div>
+      ${window._fbSyncReady?
+        `<button class="btn ghost full" onclick="doLogout()">🚪 Se déconnecter</button>`:
+        `<div style="font-size:.78rem;color:var(--muted);line-height:1.7">
+          Pour activer la synchronisation :<br>
+          1. Va sur <a href="https://console.firebase.google.com" target="_blank"
+            style="color:var(--gold)">console.firebase.google.com</a><br>
+          2. Crée un projet gratuit<br>
+          3. Copie ta config dans le fichier HTML<br>
+          4. Recharge la page → tu peux te connecter avec Google
+        </div>`}
+    </div>
+    <div style="height:20px"></div>
+  `;
+}
+
+async function updateAcctField(field,val){
+  const a=acct(); if(!a) return;
+  a[field]=val;
+  await saveAll(); renderAccountTabs();
+}
+async function updateStartDate(val){
+  const a=acct(); if(!a) return;
+  state.settings.startDates[a.id]=val;
+  await saveAll(); renderApp();
+}
+async function deleteAccount(id){
+  if(!confirm('Supprimer ce compte et tous ses trades ?')) return;
+  state.accounts=state.accounts.filter(a=>a.id!==id);
+  delete state.trades[id]; delete state.dailies[id]; delete state.objectives[id];
+  if(activeAcctId===id) activeAcctId=state.accounts[0]?.id||'';
+  await saveAll(); renderApp();
+}
+async function resetStats(){
+  if(!confirm('Supprimer tous les trades de ce compte ?')) return;
+  state.trades[activeAcctId]=[];
+  state.dailies[activeAcctId]={};
+  await saveAll(); renderApp();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ADD ACCOUNT MODAL
+// ══════════════════════════════════════════════════════════════
+function openAddAcctModal(){
+  document.getElementById('acctModalBody').innerHTML=`
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="field"><label>Nom du compte</label>
+        <input type="text" id="na-name" placeholder="Ex: FTMO Challenge 10K"></div>
+      <div class="stat-grid g2">
+        <div class="field"><label>Capital</label>
+          <input type="number" id="na-cap" placeholder="10000"></div>
+        <div class="field"><label>Unité</label>
+          <select id="na-cur">
+            ${['$','USC','€','£'].map(c=>`<option>${c}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="stat-grid g2">
+        <div class="field"><label>Capital risque</label>
+          <input type="number" id="na-rcap" placeholder="500"></div>
+        <div class="field"><label>Risque/trade</label>
+          <input type="number" id="na-risk" placeholder="10" step="0.5"></div>
+      </div>
+      <div class="stat-grid g2">
+        <div class="field"><label>DD Daily max</label>
+          <input type="number" id="na-ddd" placeholder="500"></div>
+        <div class="field"><label>DD Global max</label>
+          <input type="number" id="na-ddg" placeholder="1000"></div>
+      </div>
+      <div class="stat-grid g2">
+        <div class="field"><label>Max trades/jour</label>
+          <input type="number" id="na-mt" value="3" min="1" max="10"></div>
+        <div class="field"><label>Max pertes/jour</label>
+          <input type="number" id="na-ml" value="2" min="1" max="5"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:.82rem;cursor:pointer">
+        <input type="checkbox" id="na-aplus">
+        Setups A+ uniquement (compte Cent)
+      </label>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal('acctModal')">Annuler</button>
+        <button class="btn" onclick="saveNewAccount()">✅ Créer le compte</button>
+      </div>
+    </div>
+  `;
+  openModal('acctModal');
+}
+
+async function saveNewAccount(){
+  const name=document.getElementById('na-name').value.trim();
+  if(!name){ alert('Indique un nom.'); return; }
+  const id='acct_'+uid();
+  const newAcct={
+    id, name,
+    capital:    parseFloat(document.getElementById('na-cap').value)||0,
+    currency:   document.getElementById('na-cur').value,
+    riskCapital:parseFloat(document.getElementById('na-rcap').value)||0,
+    riskPerTrade:parseFloat(document.getElementById('na-risk').value)||10,
+    ddDaily:    parseFloat(document.getElementById('na-ddd').value)||0,
+    ddGlobal:   parseFloat(document.getElementById('na-ddg').value)||0,
+    maxTrades:  parseInt(document.getElementById('na-mt').value)||3,
+    maxLosses:  parseInt(document.getElementById('na-ml').value)||2,
+    setupAPlus: document.getElementById('na-aplus').checked,
+    propFirm:   name,
+  };
+  state.accounts.push(newAcct);
+  state.trades[id]=[];
+  state.dailies[id]={};
+  state.objectives[id]=[];
+  state.settings.startDates[id]=today();
+  seedDefaultObjectives();
+  activeAcctId=id;
+  await saveAll();
+  closeModal('acctModal');
+  renderApp();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TRADE DETAIL MODAL
+// ══════════════════════════════════════════════════════════════
+function openTradeDetail(id){
+  const a=acct();
+  const t=myTrades().find(x=>x.id===id); if(!t) return;
+  document.getElementById('detailModalBody').innerHTML=`
+    <div class="modal-title">${t.pair} ${t.direction} · ${t.date} ${t.time}</div>
+    <div class="flex-gap mb12">
+      <span class="badge ${t.result==='win'?'grn':t.result==='loss'?'red':'yel'}">
+        ${t.result==='win'?'✅ WIN':t.result==='loss'?'❌ LOSS':'➖ BE'}
+      </span>
+      <span class="day-badge">Jour ${t.dayNumber}</span>
+      ${t.setupGrade?`<span class="badge yel">⭐ ${t.setupGrade}</span>`:''}
+    </div>
+    <div class="stat-grid g2 mb12">
+      <div class="stat-card"><div class="stat-label">MONTANT</div>
+        <div class="stat-val ${cc(t.amount)}">${fmt(t.amount,a.currency)}</div></div>
+      <div class="stat-card"><div class="stat-label">RR</div>
+        <div class="stat-val neu">${t.rr.toFixed(1)}</div></div>
+      <div class="stat-card"><div class="stat-label">LOT SIZE</div>
+        <div class="stat-val">${t.lotSize}</div></div>
+      <div class="stat-card"><div class="stat-label">RISQUE</div>
+        <div class="stat-val neg">${t.risk} ${a.currency}</div></div>
+    </div>
+    <div style="font-size:.8rem;color:var(--muted);margin-bottom:8px">
+      📊 ${t.session} · ${t.setup}
+      ${t.emotionBefore?`<br>😶 Avant: ${t.emotionBefore}`:''}
+      ${t.emotionAfter?`<br>😌 Après: ${t.emotionAfter}`:''}
+    </div>
+    ${t.screenshotData?`
+      <div class="mb12">
+        <div class="card-title">📸 CAPTURE</div>
+        <img src="${t.screenshotData}" style="width:100%;max-height:250px;
+          object-fit:contain;border-radius:8px;border:1px solid var(--bdr)">
+      </div>`:''}
+    ${t.note?`<div class="card mb12" style="font-size:.82rem;color:var(--txt2)">${t.note}</div>`:''}
+  `;
+  document.getElementById('detailModalActions').innerHTML=`
+    <button class="btn ghost sm" onclick="closeModal('detailModal')">Fermer</button>
+    <button class="btn ghost sm" onclick="closeModal('detailModal');openAddTradeModal('${t.id}')">✏️ Modifier</button>
+    <button class="btn red sm" onclick="deleteTrade('${t.id}')">🗑</button>
+  `;
+  openModal('detailModal');
+}
+
+async function deleteTrade(id){
+  if(!confirm('Supprimer ce trade ?')) return;
+  state.trades[activeAcctId]=(state.trades[activeAcctId]||[]).filter(t=>t.id!==id);
+  await saveAll();
+  closeModal('detailModal');
+  renderApp();
+}
+
+// ── Day detail modal ──
+function openDayModal(d,aid){
+  const a=state.accounts.find(x=>x.id===aid)||acct();
+  const tt=dayTrades(d,aid);
+  const pnl=tt.reduce((s,t)=>s+t.amount,0);
+  const entry=(state.dailies[aid]||{})[d]||{};
+  document.getElementById('dayModalBody').innerHTML=`
+    <div class="modal-title">📅 ${d}</div>
+    <div class="flex-gap mb12">
+      <span class="badge ${cc(pnl)==='pos'?'grn':cc(pnl)==='neg'?'red':'yel'}">
+        ${fmt(pnl,a.currency)}</span>
+      ${entry.mainEmotion?`<span class="badge yel">${entry.mainEmotion}</span>`:''}
+      ${entry.canTrade!==undefined?`<span class="badge ${entry.canTrade?'grn':'red'}">
+        ${entry.canTrade?'✅ Checklist OK':'⛔ Pas trader'}</span>`:''}
+    </div>
+    ${tt.length?tt.map(t=>tradeItemHTML(t,a)).join(''):'<div class="empty">Aucun trade</div>'}
+    ${entry.note?`<div class="card mt12" style="font-size:.82rem">${entry.note}</div>`:''}
+  `;
+  openModal('dayModal');
+}
+
+// ── Trade item HTML ──
+function tradeItemHTML(t,a){
+  return `<div class="trade-item ${t.result}" onclick="openTradeDetail('${t.id}')">
+    <div class="trade-num ${t.result}">${t.result==='win'?'W':t.result==='loss'?'L':'BE'}</div>
+    <div class="trade-info">
+      <div class="trade-pair">${t.pair}
+        <span style="font-size:.72rem;font-weight:400;color:var(--muted)"> ${t.direction} · ${t.session}</span>
+        ${t.setupGrade==='A+'?`<span class="badge yel" style="font-size:.6rem;padding:1px 6px">⭐A+</span>`:''}
+      </div>
+      <div class="trade-meta">${t.date} ${t.time} · J${t.dayNumber}${t.setup?' · '+t.setup:''}</div>
+      ${t.note?`<div class="trade-note-p">📝 ${t.note}</div>`:''}
+    </div>
+    <div>
+      <div class="trade-amount ${t.result}">${fmt(t.amount,a.currency)}</div>
+      <div style="font-size:.65rem;color:var(--muted);text-align:right">RR ${t.rr.toFixed(1)}</div>
+    </div>
+    ${t.screenshotData?`<div style="font-size:.9rem" title="Screenshot">📸</div>`:''}
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MODAL HELPERS
+// ══════════════════════════════════════════════════════════════
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+document.addEventListener('click', e=>{
+  ['tradeModal','acctModal','detailModal','dayModal'].forEach(id=>{
+    const ov=document.getElementById(id);
+    if(ov&&e.target===ov) ov.classList.remove('open');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+//  EXPORT / IMPORT
+// ══════════════════════════════════════════════════════════════
+function exportJSON(){
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='tradelog_pro_'+today()+'.json';
+  a.click();
+}
+function importJSON(e){
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=async ev=>{
+    try{
+      const imported=JSON.parse(ev.target.result);
+      if(!confirm('Importer ? Les données actuelles seront remplacées.')) return;
+      state=imported; ensureStructure();
+      await saveAll();
+      if(state.accounts.length) activeAcctId=state.accounts[0].id;
+      renderApp();
+    }catch{ alert('Fichier invalide.'); }
+  };
+  reader.readAsText(file); e.target.value='';
+}
+function exportCSV(){
+  const a=acct(); if(!a) return;
+  const trades=myTrades();
+  if(!trades.length){ alert('Aucun trade à exporter.'); return; }
+  const headers=['Date','Heure','Jour','Paire','Direction','Résultat','Montant',
+    'Lot','Risque','RR','Session','Setup','Grade','Émotion Avant','Émotion Après','Note'];
+  const rows=trades.map(t=>[
+    t.date,t.time,t.dayNumber,t.pair,t.direction,t.result,t.amount,
+    t.lotSize,t.risk,t.rr,t.session,t.setup,t.setupGrade||'',
+    t.emotionBefore||'',t.emotionAfter||'',
+    (t.note||'').replace(/,/g,';').replace(/\n/g,' ')
+  ]);
+  const csv=[headers,...rows].map(r=>r.join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url; link.download='trades_'+a.name+'_'+today()+'.csv';
+  link.click();
+}
+</script>
+</body>
+</html>
